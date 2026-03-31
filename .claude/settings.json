@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//private/tmp/**)",
+      "Bash(bun create vite stereo-moon-temp --template vanilla-ts)",
+      "Bash(bun install)",
+      "Bash(bun add three astronomy-engine)",
+      "Bash(bun add -d @types/three @tailwindcss/vite tailwindcss)",
+      "Bash(bun run build)",
+      "Bash(bun run dev)"
+    ],
+    "additionalDirectories": [
+      "/Users/yfz/.claude/projects/-Users-yfz-Developer-GitHub-stereo-moon"
+    ]
+  }
+}

@@ -354,37 +354,3 @@ export function computeFrame(date: Date): FrameData {
     santiagoStereo,
   };
 }
-
-export function generateKeyframes(intervalSec = 30): FrameData[] {
-  const frames: FrameData[] = [];
-  const startMs = SIM_START.getTime();
-  const endMs = SIM_END.getTime();
-  for (let ms = startMs; ms <= endMs; ms += intervalSec * 1000) {
-    frames.push(computeFrame(new Date(ms)));
-  }
-  return frames;
-}
-
-/**
- * Export keyframes as a minimal JSON structure for video editing.
- */
-export function exportKeyframesJSON(intervalSec = 30): string {
-  const frames = generateKeyframes(intervalSec);
-  const data = frames.map(f => ({
-    utc: f.utcString,
-    boston_video_sec: Math.round(f.bostonVideoSec * 10) / 10,
-    santiago_video_sec: Math.round(f.santiagoVideoSec * 10) / 10,
-    boston_rotation_deg: Math.round(f.bostonStereo * 1000) / 1000,
-    santiago_rotation_deg: Math.round(f.santiagoStereo * 1000) / 1000,
-    parallax_deg: Math.round(f.parallax * 1000) / 1000,
-    boston_moon_alt: Math.round(f.bostonAltAz.alt * 100) / 100,
-    boston_moon_az: Math.round(f.bostonAltAz.az * 100) / 100,
-    santiago_moon_alt: Math.round(f.santiagoAltAz.alt * 100) / 100,
-    santiago_moon_az: Math.round(f.santiagoAltAz.az * 100) / 100,
-    in_overlap: f.inOverlap,
-    eclipse_phase: f.eclipse.phase,
-    umbral_immersion: Math.round(f.eclipse.umbralImmersion * 1000) / 1000,
-    penumbral_immersion: Math.round(f.eclipse.penumbralImmersion * 1000) / 1000,
-  }));
-  return JSON.stringify(data, null, 2);
-}

@@ -44,6 +44,18 @@ export class PlanetaryScene {
   private insetSize = 200;
   private timelineHeight = 70;
 
+  // Live PIP canvas outputs — persistent 2D canvases that the stereo
+  // compositor samples as textures. Populated each frame by
+  // renderPIPOutputs() when pipOutputsEnabled is on.
+  private pipCanvases: Record<string, HTMLCanvasElement> = {};
+  private pipCtxs: Record<string, CanvasRenderingContext2D> = {};
+  private pipImageData: Record<string, ImageData> = {};
+  private pipCanvasSize = 512;
+  private pipOutputsEnabled = false;
+  private pipPixelBuffer: Uint8Array | null = null;
+  private pipRenderTarget: THREE.WebGLRenderTarget | null = null;
+  private pipRenderTargetSize = 0;
+
   constructor(container: HTMLElement) {
     // Load textures
     const loader = new THREE.TextureLoader();
@@ -204,7 +216,13 @@ export class PlanetaryScene {
     });
   }
 
-  update(frame: FrameData) {
+  /**
+   * Pure state write — moon/observer positions, gaze lines, shader uniforms,
+   * earth rotation, AND the four telescope camera orientations. Does NOT
+   * render. Safe to call at any frequency; idempotent if called twice with
+   * the same frame.
+   */
+  applyFrameState(frame: FrameData) {
     const s = AU_TO_ER;
 
     // Real Sun position in scene coords (ER) — used by shaders
@@ -251,43 +269,52 @@ export class PlanetaryScene {
     this.moonMat.uniforms.uSunPos.value.copy(realSunPos);
     this.earthMat.uniforms.uSunPos.value.copy(realSunPos);
 
-    // Orient telescope cameras
-    if (this.telescopesVisible) {
-      // Shared baseline direction (Boston→Santiago) — same for both cameras
-      const baseline = new THREE.Vector3().subVectors(santiagoScene, bostonScene);
+    // Orient telescope cameras. ALWAYS — not gated by telescopesVisible —
+    // so the stereo PIP compositor can read a correct view at any time.
+    //
+    // Shared baseline direction (Boston→Santiago) — same for both cameras.
+    // Both must use the SAME baseline vector or the rotated images flip
+    // relative to each other.
+    const baseline = new THREE.Vector3().subVectors(santiagoScene, bostonScene);
 
-      const orientTelescope = (
-        cam: THREE.PerspectiveCamera,
-        observerPos: THREE.Vector3,
-        target: THREE.Vector3,
-        corrected: boolean,
-      ) => {
-        cam.position.copy(observerPos);
+    const orientTelescope = (
+      cam: THREE.PerspectiveCamera,
+      observerPos: THREE.Vector3,
+      target: THREE.Vector3,
+      corrected: boolean,
+    ) => {
+      cam.position.copy(observerPos);
 
-        const gaze = new THREE.Vector3().subVectors(target, observerPos).normalize();
-        const zenith = observerPos.clone().normalize();
-        // Project zenith perpendicular to gaze → horizon-leveled "up"
-        const upRaw = zenith.clone().addScaledVector(gaze, -zenith.dot(gaze)).normalize();
+      const gaze = new THREE.Vector3().subVectors(target, observerPos).normalize();
+      const zenith = observerPos.clone().normalize();
+      // Project zenith perpendicular to gaze → horizon-leveled "up"
+      const upRaw = zenith.clone().addScaledVector(gaze, -zenith.dot(gaze)).normalize();
 
-        if (!corrected) {
-          cam.up.copy(upRaw);
-        } else {
-          // Project the shared baseline onto the image plane (perp to gaze)
-          const baseProj = baseline.clone().addScaledVector(gaze, -baseline.dot(gaze));
-          const rightStereo = baseProj.normalize();
-          // up = cross(gaze, right) — perpendicular to both gaze and baseline
-          const upStereo = new THREE.Vector3().crossVectors(gaze, rightStereo);
-          cam.up.copy(upStereo);
-        }
+      if (!corrected) {
+        cam.up.copy(upRaw);
+      } else {
+        // Project the shared baseline onto the image plane (perp to gaze)
+        const baseProj = baseline.clone().addScaledVector(gaze, -baseline.dot(gaze));
+        const rightStereo = baseProj.normalize();
+        // Three.js lookAt computes camera-right as cross(up, -gaze).
+        // With up = cross(rightStereo, gaze), camera-right = +rightStereo.
+        // (The opposite order cross(gaze, rightStereo) gives camera-right = -rightStereo,
+        // flipping the image horizontally.)
+        const upStereo = new THREE.Vector3().crossVectors(rightStereo, gaze);
+        cam.up.copy(upStereo);
+      }
 
-        cam.lookAt(target);
-      };
+      cam.lookAt(target);
+    };
 
-      orientTelescope(this.bostonRawCam, bostonScene, moonScene, false);
-      orientTelescope(this.bostonCorrectedCam, bostonScene, moonScene, true);
-      orientTelescope(this.santiagoRawCam, santiagoScene, moonScene, false);
-      orientTelescope(this.santiagoCorrectedCam, santiagoScene, moonScene, true);
-    }
+    orientTelescope(this.bostonRawCam, bostonScene, moonScene, false);
+    orientTelescope(this.bostonCorrectedCam, bostonScene, moonScene, true);
+    orientTelescope(this.santiagoRawCam, santiagoScene, moonScene, false);
+    orientTelescope(this.santiagoCorrectedCam, santiagoScene, moonScene, true);
+  }
+
+  update(frame: FrameData) {
+    this.applyFrameState(frame);
 
     this.controls.update();
 
@@ -353,7 +380,94 @@ export class PlanetaryScene {
   setTelescopesVisible(visible: boolean) {
     this.telescopesVisible = visible;
   }
+
+  // --- Live PIP canvas outputs (for stereo mode) ---
+
+  setPIPOutputsEnabled(on: boolean) {
+    this.pipOutputsEnabled = on;
+    if (on && Object.keys(this.pipCanvases).length === 0) {
+      for (const k of PIP_KEYS) {
+        const c = document.createElement('canvas');
+        c.width = this.pipCanvasSize;
+        c.height = this.pipCanvasSize;
+        this.pipCanvases[k] = c;
+        const ctx = c.getContext('2d');
+        if (!ctx) throw new Error('PIP canvas 2d context failed');
+        this.pipCtxs[k] = ctx;
+        this.pipImageData[k] = ctx.createImageData(this.pipCanvasSize, this.pipCanvasSize);
+      }
+    }
+  }
+
+  getPIPCanvas(camera: 'boston' | 'santiago', kind: 'raw' | 'corrected'): HTMLCanvasElement {
+    const k = `${camera}_${kind}`;
+    if (!this.pipCanvases[k]) this.setPIPOutputsEnabled(true);
+    return this.pipCanvases[k];
+  }
+
+  // Render all 4 telescope PIPs into their persistent 2D canvases. Expects
+  // applyFrameState to have been called already. Cheap-ish: one render-target
+  // pass per PIP + 4 readPixels + 4 putImageData at 512². Skipped entirely if
+  // outputs are disabled.
+  renderPIPOutputs() {
+    if (!this.pipOutputsEnabled) return;
+    const size = this.pipCanvasSize;
+    if (this.pipPixelBuffer === null || this.pipPixelBuffer.length !== size * size * 4) {
+      this.pipPixelBuffer = new Uint8Array(size * size * 4);
+    }
+    this.renderOnePIP('boston', 'raw');
+    this.renderOnePIP('boston', 'corrected');
+    this.renderOnePIP('santiago', 'raw');
+    this.renderOnePIP('santiago', 'corrected');
+  }
+
+  private renderOnePIP(camera: 'boston' | 'santiago', kind: 'raw' | 'corrected') {
+    const size = this.pipCanvasSize;
+    const cam =
+      camera === 'boston'
+        ? kind === 'raw' ? this.bostonRawCam : this.bostonCorrectedCam
+        : kind === 'raw' ? this.santiagoRawCam : this.santiagoCorrectedCam;
+
+    if (this.pipRenderTarget === null || this.pipRenderTargetSize !== size) {
+      if (this.pipRenderTarget !== null) this.pipRenderTarget.dispose();
+      this.pipRenderTarget = new THREE.WebGLRenderTarget(size, size, {
+        depthBuffer: true,
+        stencilBuffer: false,
+      });
+      this.pipRenderTargetSize = size;
+    }
+    const target = this.pipRenderTarget;
+
+    const prevTarget = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(target);
+    this.renderer.setClearColor(0x000000, 1);
+    this.renderer.clear();
+    this.renderer.render(this.scene, cam);
+    this.renderer.setRenderTarget(prevTarget);
+    this.renderer.setClearColor(0x0a0a0f);
+
+    const pixels = this.pipPixelBuffer!;
+    this.renderer.readRenderTargetPixels(target, 0, 0, size, size, pixels);
+
+    // WebGL framebuffers are y-up; canvas ImageData is y-down. Flip rows.
+    const k = `${camera}_${kind}`;
+    const img = this.pipImageData[k];
+    const rowBytes = size * 4;
+    for (let y = 0; y < size; y++) {
+      const src = (size - 1 - y) * rowBytes;
+      const dst = y * rowBytes;
+      img.data.set(pixels.subarray(src, src + rowBytes), dst);
+    }
+    this.pipCtxs[k].putImageData(img, 0, 0);
+  }
 }
+
+const PIP_KEYS = [
+  'boston_raw',
+  'boston_corrected',
+  'santiago_raw',
+  'santiago_corrected',
+] as const;
 
 function updateLine(line: THREE.Line, from: THREE.Vector3, to: THREE.Vector3) {
   const positions = line.geometry.attributes.position as THREE.BufferAttribute;

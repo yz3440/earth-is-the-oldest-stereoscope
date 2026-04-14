@@ -1,0 +1,16 @@
+{
+  "boston": {
+    "raw": "/footage/boston_raw.mp4",
+    "rotated": "/footage/boston_rotated.mp4",
+    "start_utc": "2026-03-02T22:41:00Z",
+    "timelapse_fps": 1,
+    "playback_fps": 30
+  },
+  "santiago": {
+    "raw": "/footage/santiago_raw.mp4",
+    "rotated": "/footage/santiago_rotated.mp4",
+    "start_utc": "2026-03-03T00:40:00Z",
+    "timelapse_fps": 1,
+    "playback_fps": 30
+  }
+}

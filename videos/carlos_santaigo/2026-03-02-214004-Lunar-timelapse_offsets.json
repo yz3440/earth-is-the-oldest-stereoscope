@@ -3,6 +3,7 @@
   "width": 1080,
   "height": 1920,
   "fps": 30.000766577232657,
+  "scale": 2,
   "total_frames": 39135,
   "reanchors": 322,
   "interpolated_frames": 4752,

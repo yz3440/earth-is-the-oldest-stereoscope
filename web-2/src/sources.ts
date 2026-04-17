@@ -17,7 +17,6 @@ export interface SourcesContext {
 export interface ResolvedSource {
   kind: 'video' | 'canvas';
   el: HTMLVideoElement | HTMLCanvasElement;
-  loading: boolean;
 }
 
 export function resolveEyeSource(side: EyeSide, ctx: SourcesContext): ResolvedSource {
@@ -25,14 +24,10 @@ export function resolveEyeSource(side: EyeSide, ctx: SourcesContext): ResolvedSo
   const covers = ctx.covers[side];
 
   if (video && !covers) {
-    return { kind: 'canvas', el: getNoSignalCanvas(), loading: false };
+    return { kind: 'canvas', el: getNoSignalCanvas() };
   }
   if (video && video.readyState >= 2 && video.videoWidth > 0 && !video.seeking) {
-    return { kind: 'video', el: video, loading: false };
+    return { kind: 'video', el: video };
   }
-  return {
-    kind: 'canvas',
-    el: ctx.scene.getPIPCanvas(side),
-    loading: video != null,
-  };
+  return { kind: 'canvas', el: ctx.scene.getPIPCanvas(side) };
 }

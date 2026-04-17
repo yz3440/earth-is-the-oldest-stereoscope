@@ -30,6 +30,20 @@ def load_offsets(json_path: str) -> dict:
         return json.load(f)
 
 
+def parse_video_time(s: str) -> float:
+    """Accept 'HH:MM:SS', 'MM:SS', 'SS' (ints or floats). Returns seconds."""
+    parts = [float(p) for p in str(s).split(":")]
+    if len(parts) == 3:
+        h, m, sec = parts
+    elif len(parts) == 2:
+        h, m, sec = 0.0, parts[0], parts[1]
+    elif len(parts) == 1:
+        h, m, sec = 0.0, 0.0, parts[0]
+    else:
+        raise ValueError(f"unrecognized video-time string: {s!r}")
+    return h * 3600 + m * 60 + sec
+
+
 def detect_moon_bbox(frame: np.ndarray) -> tuple[int, int, int, int] | None:
     """Threshold + largest-contour bounding box. Moon is the biggest bright
     blob against dark sky, so Otsu + max-area contour is enough."""
@@ -150,10 +164,27 @@ def main():
         args.output = str(Path(video_path).parent / (Path(video_path).stem + "_stabilized.mp4"))
 
     frame_count = data["total_frames"]
-    if args.preview is not None:
-        frame_count = min(frame_count, args.preview)
     fps = data["fps"]
     w, h = data["width"], data["height"]
+
+    # If a sibling video_meta.json declares moon_out_of_frame_video_time,
+    # truncate the output there. The field is a video-time string like
+    # "00:16:10" — i.e. position in the source playback, not UTC.
+    meta_path = offsets_dir / "video_meta.json"
+    if meta_path.exists():
+        with open(meta_path) as f:
+            meta = json.load(f)
+        cutoff_str = meta.get("moon_out_of_frame_video_time")
+        if cutoff_str:
+            cutoff_sec = parse_video_time(cutoff_str)
+            cutoff_frames = int(cutoff_sec * fps)
+            if cutoff_frames < frame_count:
+                print(f"  Truncating at moon_out_of_frame_video_time={cutoff_str} "
+                      f"({cutoff_sec:.1f}s → frame {cutoff_frames})")
+                frame_count = cutoff_frames
+
+    if args.preview is not None:
+        frame_count = min(frame_count, args.preview)
 
     print(f"Video: {video_path} ({w}x{h}, {fps}fps)")
     print(f"Frames to process: {frame_count}")

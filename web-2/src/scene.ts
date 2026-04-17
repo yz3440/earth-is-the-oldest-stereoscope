@@ -14,7 +14,9 @@ import { celestialVertexShader, moonFragmentShader } from './shaders';
 
 const MOON_RADIUS_ER = 1737.4 / 6371.0;
 const SUN_RADIUS_ER = 696000.0 / 6371.0;
-const TEL_FOV = 3;
+// Widened so the sim moon matches the apparent size of the real telescope
+// footage in the stereo view (post-crop / post-warp effective FOV is ~6°).
+const TEL_FOV = 6;
 const PIP_SIZE = 512;
 
 function toThree(v: Vec3, scale: number): THREE.Vector3 {

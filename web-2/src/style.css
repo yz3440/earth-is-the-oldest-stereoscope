@@ -111,17 +111,6 @@ html, body {
   opacity: 1;
 }
 
-.glyph {
-  position: absolute;
-  top: -28px;
-  right: 22px;
-  font-size: 18px;
-  line-height: 1;
-  opacity: 0.85;
-}
-
-.eye-left .glyph { right: auto; left: 22px; }
-
 /* Timeline */
 #timeline {
   position: absolute;
@@ -139,7 +128,9 @@ html, body {
   letter-spacing: 0.08em;
 }
 
-#btn-play {
+#btn-play,
+#btn-slower,
+#btn-faster {
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.3);
   color: #fff;
@@ -151,10 +142,48 @@ html, body {
   padding: 0;
 }
 
-#btn-play:hover { background: rgba(255, 255, 255, 0.08); }
+#btn-play:hover,
+#btn-slower:hover,
+#btn-faster:hover { background: rgba(255, 255, 255, 0.08); }
+
+#btn-play:disabled,
+#btn-slower:disabled,
+#btn-faster:disabled,
+#scrubber:disabled {
+  opacity: 0.3;
+  cursor: default;
+  pointer-events: none;
+}
+
+#sim-rate {
+  display: inline-block;
+  min-width: 44px;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  opacity: 0.85;
+}
+
+#scrubber-wrap {
+  position: relative;
+  flex: 1;
+  height: 22px;
+  display: flex;
+  align-items: center;
+}
+
+.video-marker {
+  position: absolute;
+  height: 2px;
+  pointer-events: none;
+  left: 0;
+  width: 0;
+}
+.video-marker.boston   { top: 4px;    background: rgba(120, 180, 255, 0.75); }
+.video-marker.santiago { bottom: 4px; background: rgba(255, 175, 110, 0.75); }
 
 #scrubber {
-  flex: 1;
+  width: 100%;
   appearance: none;
   background: transparent;
   height: 22px;

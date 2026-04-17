@@ -15,7 +15,6 @@ export interface EyeData {
   videoTime: string;
   weather: Weather;
   phase: string;
-  moonGlyph: string;
   eclipseBar: string;
 }
 
@@ -40,7 +39,6 @@ interface EyeEls {
   utc: HTMLElement;
   video: HTMLElement;
   phase: HTMLElement;
-  moonGlyph: HTMLElement;
   eclipseBar: HTMLElement;
 }
 
@@ -87,13 +85,10 @@ export class Overlay {
     const phase = mk('row phase', br);
     const eclipseBar = mk('row bar', br);
 
-    // Moon-phase glyph floats near the UTC row as a one-character ornament.
-    const moonGlyph = mk('glyph', br);
-
     return {
       site, coords, time, date, tz,
       wTemp, wCond, wHum, wWind,
-      utc, video, phase, moonGlyph, eclipseBar,
+      utc, video, phase, eclipseBar,
     };
   }
 
@@ -115,7 +110,6 @@ export class Overlay {
     els.utc.textContent = d.utcTime;
     els.video.textContent = d.videoTime;
     els.phase.textContent = d.phase;
-    els.moonGlyph.textContent = d.moonGlyph;
     els.eclipseBar.textContent = d.eclipseBar;
   }
 }

@@ -42,8 +42,8 @@ export const ECLIPSE_PENUMBRAL_START = new Date('2026-03-03T09:00:00Z');
 export const ECLIPSE_TOTALITY_START = new Date('2026-03-03T11:15:00Z');
 export const ECLIPSE_TOTALITY_END = new Date('2026-03-03T12:00:00Z');
 export const ECLIPSE_PENUMBRAL_END = new Date('2026-03-03T14:30:00Z');
-export const SIM_START = BOSTON_VIDEO_START;
-export const SIM_END = new Date('2026-03-03T15:00:00Z');
+export const SIM_START = new Date('2026-03-02T22:35:00Z');
+export const SIM_END = new Date('2026-03-03T10:35:00Z');
 
 // --- Vec3 math ---
 

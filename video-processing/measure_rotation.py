@@ -21,7 +21,7 @@ brightness dominates and feature-based methods can find spurious near-zero
 matches).
 
 Sign convention: positive = CCW rotation of the visible image content (matches
-the cv2.warpAffine convention used by 04_rotate.py). Verified at startup
+the cv2.warpAffine convention used by 05_apply_rotation.py). Verified at startup
 by a self-test that rotates the first frame by a known angle.
 
 Usage:

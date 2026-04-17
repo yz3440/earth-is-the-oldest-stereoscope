@@ -18,7 +18,7 @@ export function getNoSignalCanvas(): HTMLCanvasElement {
   ctx.fillStyle = '#fff';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = 'bold 96px ui-monospace, "SF Mono", Menlo, monospace';
+  ctx.font = 'bold 44px ui-monospace, "SF Mono", Menlo, monospace';
   ctx.fillText('NO SIGNAL', SIZE / 2, SIZE / 2);
 
   cached = c;

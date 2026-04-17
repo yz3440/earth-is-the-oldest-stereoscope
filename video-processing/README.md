@@ -25,30 +25,40 @@ raw .mp4 (from telescope)
     ▼  02_stabilize.py   — apply offsets, crop to 1080×1080
 *_stabilized.mp4
     │
-    ▼  03_calibrate.py   — analytical raw-view rotation curve vs real-video ECC
-frame_to_utc.json        (per-frame UTC anchor table, ~85 anchors)
+    ▼  03_calibrate.py           — analytical raw-view rotation curve vs real-video ECC
+frame_to_utc.json                (per-frame UTC anchor table, ~85 anchors)
     │
-    ▼  04_rotate.py      — on-the-fly stereo_correction via astro.py
+    ▼  04_simulate_rotation.py   — per-frame stereo_correction via astro.py
+stereo_angles.json               (per-frame roll angles, ~600 KB / side)
+    │
+    ▼  05_apply_rotation.py      — warp + H.264 encode (pixel-only)
 *_stabilized_rotated.mp4
+    ├──▶ 06_compress_for_web.py  — CRF 30 + faststart for browser playback
+    │    *_stabilized_rotated_web.mp4
     │
-    ▼  05_stereo.py      — union-of-UTC side-by-side composite
+    ▼  07_stereo.py              — union-of-UTC side-by-side composite (off the CRF 18 source)
 stereo_moon.mp4
 ```
 
 Each step writes outputs next to its input video. The pipeline runs
-end-to-end per camera, then `05_stereo.py` combines both cameras.
+end-to-end per camera, then `07_stereo.py` combines both cameras.
+
+Splitting the rotation into `04_simulate_rotation.py` (astronomy, seconds)
+and `05_apply_rotation.py` (warp + encode, minutes) lets you iterate on the
+stereo math without re-encoding the video, and the same `stereo_angles.json`
+feeds both the pre-rendered output and the in-browser viewer.
 
 ## Run the whole pipeline
 
 Copy-paste this from `new-mono/video-processing/` after `uv sync`. It
-runs 01→04 for Boston, 01→04 for Santiago, then 05 to composite. The
-two cameras are independent through step 04 — feel free to split them
+runs 01→06 for Boston, 01→06 for Santiago, then 07 to composite. The
+two cameras are independent through step 06 — feel free to split them
 across two shells if you want them to run in parallel.
 
 ```bash
 # --- paths (edit if the raw filenames change) ---
 L_DIR=../videos/yufeng_boston
-R_DIR=../videos/carlos_santaigo
+R_DIR=../videos/carlos_santiago
 L_RAW=$L_DIR/2026-03-02-174133-Lunar-timelapse.mp4
 R_RAW=$R_DIR/2026-03-02-214004-Lunar-timelapse.mp4
 
@@ -73,14 +83,24 @@ uv run python 03_calibrate.py \
   "${R_STEM}_stabilized.mp4" "$R_DIR/video_meta.json" \
   -o "$R_DIR/frame_to_utc.json"
 
-# --- 04 rotate (gaze correction, on-the-fly stereo_correction) ---
-uv run python 04_rotate.py \
+# --- 04 simulate stereo-correction rotation angles (pure astronomy) ---
+uv run python 04_simulate_rotation.py \
   "${L_STEM}_stabilized.mp4" "$L_DIR/video_meta.json" "$L_DIR/frame_to_utc.json"
-uv run python 04_rotate.py \
+uv run python 04_simulate_rotation.py \
   "${R_STEM}_stabilized.mp4" "$R_DIR/video_meta.json" "$R_DIR/frame_to_utc.json"
 
-# --- 05 stereo side-by-side (union of UTC ranges) ---
-uv run python 05_stereo.py \
+# --- 05 apply rotation (warp + H.264 encode) ---
+uv run python 05_apply_rotation.py \
+  "${L_STEM}_stabilized.mp4" "$L_DIR/stereo_angles.json"
+uv run python 05_apply_rotation.py \
+  "${R_STEM}_stabilized.mp4" "$R_DIR/stereo_angles.json"
+
+# --- 06 compress for web (CRF 30 H.264, ~7-8x smaller) ---
+uv run python 06_compress_for_web.py "${L_STEM}_stabilized_rotated.mp4"
+uv run python 06_compress_for_web.py "${R_STEM}_stabilized_rotated.mp4"
+
+# --- 07 stereo side-by-side (union of UTC ranges, off the CRF 18 source) ---
+uv run python 07_stereo.py \
   "${L_STEM}_stabilized_rotated.mp4" "$L_DIR/video_meta.json" \
   "${R_STEM}_stabilized_rotated.mp4" "$R_DIR/video_meta.json" \
   --left-frame-to-utc  "$L_DIR/frame_to_utc.json" \
@@ -106,7 +126,7 @@ scales offsets back up).
 
 ```bash
 uv run python 01_track.py ../videos/yufeng_boston/2026-03-02-174133-Lunar-timelapse.mp4
-uv run python 01_track.py ../videos/carlos_santaigo/2026-03-02-214004-Lunar-timelapse.mp4
+uv run python 01_track.py ../videos/carlos_santiago/2026-03-02-214004-Lunar-timelapse.mp4
 ```
 
 ### 02 — Stabilize + crop
@@ -116,7 +136,7 @@ can click the output center, or pass `--center X,Y`.
 
 ```bash
 uv run python 02_stabilize.py ../videos/yufeng_boston/2026-03-02-174133-Lunar-timelapse_offsets.json
-uv run python 02_stabilize.py ../videos/carlos_santaigo/2026-03-02-214004-Lunar-timelapse_offsets.json
+uv run python 02_stabilize.py ../videos/carlos_santiago/2026-03-02-214004-Lunar-timelapse_offsets.json
 ```
 
 ### 03 — Calibrate `frame_idx → UTC`
@@ -134,30 +154,55 @@ uv run python 03_calibrate.py \
   -o ../videos/yufeng_boston/frame_to_utc.json
 
 uv run python 03_calibrate.py \
-  ../videos/carlos_santaigo/2026-03-02-214004-Lunar-timelapse_stabilized.mp4 \
-  ../videos/carlos_santaigo/video_meta.json \
-  -o ../videos/carlos_santaigo/frame_to_utc.json
+  ../videos/carlos_santiago/2026-03-02-214004-Lunar-timelapse_stabilized.mp4 \
+  ../videos/carlos_santiago/video_meta.json \
+  -o ../videos/carlos_santiago/frame_to_utc.json
 ```
 
 Pass `--end-frame N` only to exclude a known-bad tail (e.g. the
 eclipse-totality window on Boston where 02_stabilize loses lock on the
 moon). By default the calibrator processes every frame of the video.
 
-### 04 — Rotate (gaze correction)
+### 04 — Simulate rotation (pure astronomy)
 
-Looks up each frame's UTC from the anchor table (with linear
-extrapolation past the anchors), computes `astro.stereo_correction` for
-that UTC on the fly, and applies `cv2.warpAffine(..., -angle)`. No
-keyframes JSON required.
+Looks up each frame's UTC from the anchor table (with linear extrapolation
+past the anchors) and computes `astro.stereo_correction` on a coarse sim-time
+grid (default 5 s cadence, interp error < 1e-3°), then interpolates to
+per-frame. Emits `stereo_angles.json` with per-frame `angles_deg` and
+`frame_real_times_sec`. No video pixels touched — runs in seconds.
 
 ```bash
-uv run python 04_rotate.py \
+uv run python 04_simulate_rotation.py \
   ../videos/yufeng_boston/2026-03-02-174133-Lunar-timelapse_stabilized.mp4 \
   ../videos/yufeng_boston/video_meta.json \
   ../videos/yufeng_boston/frame_to_utc.json
 ```
 
-### 05 — Stereo side-by-side
+### 05 — Apply rotation (pixel-only warp + encode)
+
+Reads `stereo_angles.json` and applies `cv2.warpAffine(..., -angles_deg[i])`
+per frame, encoding H.264 / yuv420p / +faststart so the output plays in
+browsers. Decoupled from step 04 so you can iterate on the stereo math
+without re-encoding.
+
+```bash
+uv run python 05_apply_rotation.py \
+  ../videos/yufeng_boston/2026-03-02-174133-Lunar-timelapse_stabilized.mp4 \
+  ../videos/yufeng_boston/stereo_angles.json
+```
+
+### 06 — Compress for web
+
+H.264 / yuv420p / +faststart at CRF 30 + slow preset. For a stabilized moon
+on a black sky this gives ~7-8x reduction over the rotated source while
+staying visually indistinguishable. Produces `<input>_web.mp4` by default.
+
+```bash
+uv run python 06_compress_for_web.py \
+  ../videos/yufeng_boston/2026-03-02-174133-Lunar-timelapse_stabilized_rotated.mp4
+```
+
+### 07 — Stereo side-by-side
 
 Composites both rotated videos into a single side-by-side stereo stream
 aligned by UTC. The output spans the **union** of the two recordings —
@@ -165,13 +210,13 @@ Boston's pre-overlap solo footage, the overlap, and any solo tail — with
 black frames filling whichever panel isn't recording.
 
 ```bash
-uv run python 05_stereo.py \
+uv run python 07_stereo.py \
   ../videos/yufeng_boston/2026-03-02-174133-Lunar-timelapse_stabilized_rotated.mp4 \
   ../videos/yufeng_boston/video_meta.json \
-  ../videos/carlos_santaigo/2026-03-02-214004-Lunar-timelapse_stabilized_rotated.mp4 \
-  ../videos/carlos_santaigo/video_meta.json \
+  ../videos/carlos_santiago/2026-03-02-214004-Lunar-timelapse_stabilized_rotated.mp4 \
+  ../videos/carlos_santiago/video_meta.json \
   --left-frame-to-utc  ../videos/yufeng_boston/frame_to_utc.json \
-  --right-frame-to-utc ../videos/carlos_santaigo/frame_to_utc.json
+  --right-frame-to-utc ../videos/carlos_santiago/frame_to_utc.json
 ```
 
 ### Diagnostic — measure rotation

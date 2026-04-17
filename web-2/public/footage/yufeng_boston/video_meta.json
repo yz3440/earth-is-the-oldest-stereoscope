@@ -1,0 +1,14 @@
+{
+  "camera": "boston",
+  "operator": "Yufeng Zhao",
+  "location": {
+    "city": "Boston",
+    "lat": 42.36,
+    "lon": -71.06
+  },
+  "video_start_utc": "2026-03-02T22:41:00Z",
+  "video_start_local": "2026-03-02T17:41:00-05:00",
+  "timezone": "EST (UTC-5)",
+  "timelapse_fps": 1,
+  "moon_out_of_frame_video_time": "00:16:10"
+}

@@ -1,12 +1,8 @@
-// Manifest loader. Reads video_meta.json + frame_to_utc.json directly from
-// /footage/<station>/ (symlinked to repo root /videos/). Produces the shape
-// that sync.ts needs: startUTC + speedup + videoUrl + station identity.
-
-// The stabilized-rotated videos play at 30 fps and each frame represents
-// 1 second of real time (capture was 1 fps). So 1 video-second = 30 real-sec.
-const PLAYBACK_FPS = 30;
-const NAIVE_TIMELAPSE_FPS = 1;
-const SPEEDUP = PLAYBACK_FPS / NAIVE_TIMELAPSE_FPS;  // 30 real-sec per video-sec
+// Manifest loader. Reads video_meta.json + stereo_angles.json (emitted by
+// 04_simulate_rotation.py) directly from /footage/<station>/. The station
+// dirs under /web-2/public/footage/ hold the compressed stabilized videos
+// plus the per-frame angle + timing anchors the viewer needs to rotate
+// frames on-the-fly.
 
 export type Side = 'boston' | 'santiago';
 
@@ -18,10 +14,16 @@ interface VideoMeta {
   timelapse_fps: number;
 }
 
-interface FrameToUtc {
+interface StereoAngles {
   source_video: string;
+  camera: string;
   video_start_utc: string;
   effective_timelapse_fps: number;
+  video_fps: number;
+  total_frames: number;
+  angle_range_deg: [number, number];
+  frame_real_times_sec: number[];
+  angles_deg: number[];
 }
 
 export interface StationManifest {
@@ -29,10 +31,14 @@ export interface StationManifest {
   city: string;
   lat: number;
   lon: number;
-  timezone: string;      // raw string from meta, e.g. "EST (UTC-5)"
+  timezone: string;
   startUTC: Date;
   videoUrl: string;
-  speedup: number;       // real-sec per video-sec
+  speedup: number;               // real-sec per video-sec (linear approximation)
+  videoFps: number;              // encoded playback fps
+  totalFrames: number;
+  frameRealTimesSec: Float32Array; // per-frame seconds since video start
+  anglesDeg: Float32Array;         // per-frame stereo correction angle
 }
 
 export interface Manifest {
@@ -47,17 +53,22 @@ const STATION_DIRS: Record<Side, string> = {
 
 async function loadStation(side: Side): Promise<StationManifest> {
   const dir = STATION_DIRS[side];
-  const [metaRes, frameRes] = await Promise.all([
+  const [metaRes, anglesRes] = await Promise.all([
     fetch(`${dir}/video_meta.json`),
-    fetch(`${dir}/frame_to_utc.json`),
+    fetch(`${dir}/stereo_angles.json`),
   ]);
   if (!metaRes.ok) throw new Error(`meta fetch failed: ${side}`);
-  if (!frameRes.ok) throw new Error(`frame fetch failed: ${side}`);
+  if (!anglesRes.ok) throw new Error(`stereo_angles fetch failed: ${side}`);
   const meta: VideoMeta = await metaRes.json();
-  const frame: FrameToUtc = await frameRes.json();
+  const angles: StereoAngles = await anglesRes.json();
 
-  const rotated = frame.source_video.replace(/_stabilized\.mp4$/, '_stabilized_rotated_web.mp4');
-  const videoUrl = `${dir}/${rotated}`;
+  // Serve the unrotated stabilized video; rotation is applied in the shader.
+  const stabilizedWeb = angles.source_video.replace(/_stabilized\.mp4$/, '_stabilized_web.mp4');
+  const videoUrl = `${dir}/${stabilizedWeb}`;
+
+  // Real-sec per video-sec. Seestar reports timelapse_fps=1 but the
+  // calibrator measures ~0.71; for a 30 fps encode that's ~42.2.
+  const speedup = angles.video_fps / angles.effective_timelapse_fps;
 
   return {
     side,
@@ -67,7 +78,11 @@ async function loadStation(side: Side): Promise<StationManifest> {
     timezone: meta.timezone,
     startUTC: new Date(meta.video_start_utc),
     videoUrl,
-    speedup: SPEEDUP,
+    speedup,
+    videoFps: angles.video_fps,
+    totalFrames: angles.total_frames,
+    frameRealTimesSec: Float32Array.from(angles.frame_real_times_sec),
+    anglesDeg: Float32Array.from(angles.angles_deg),
   };
 }
 

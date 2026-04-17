@@ -14,9 +14,57 @@
 
 export interface VideoTrack {
   el: HTMLVideoElement;
-  startUTC: number;   // seconds since epoch
-  speedup: number;    // playback_fps / timelapse_fps
-  duration: number;   // video-seconds
+  startUTC: number;           // seconds since epoch
+  speedup: number;            // real-sec per video-sec (linear approx, used for playbackRate)
+  duration: number;           // video-seconds
+  videoFps: number;           // encoded fps
+  frameRealTimesSec: Float32Array; // per-frame real-sec since video start
+}
+
+/**
+ * Invert the piecewise-linear frame_idx → real-sec map:
+ * given real-sec since video start, return a fractional frame index plus
+ * the local slope in real-seconds-per-frame (used to match `playbackRate`
+ * to the anchor table's *local* rate — a globally-fit constant `playbackRate`
+ * would accumulate drift in every segment where the local rate differs
+ * from the average, triggering the seek-on-drift path every few seconds).
+ *
+ * Mirrors build_frame_real_times() in video-processing/04_simulate_rotation.py.
+ *
+ * Assumes `arr` is monotonic (the calibrator guarantees it). Binary search
+ * for the bracket, linearly interpolate. Clamps outside the range.
+ */
+const MIN_PLAYBACK_RATE = 0.1;
+const MAX_PLAYBACK_RATE = 8.0;
+function clampPlaybackRate(r: number): number {
+  if (!Number.isFinite(r) || r <= 0) return MIN_PLAYBACK_RATE;
+  return Math.max(MIN_PLAYBACK_RATE, Math.min(MAX_PLAYBACK_RATE, r));
+}
+
+function frameIdxAndSlopeForRealSec(
+  arr: Float32Array,
+  realSec: number,
+): { frameIdx: number; secPerFrame: number } {
+  const n = arr.length;
+  if (n === 0) return { frameIdx: 0, secPerFrame: 1 };
+  if (realSec <= arr[0]) {
+    const span = n >= 2 ? arr[1] - arr[0] : 1;
+    return { frameIdx: 0, secPerFrame: span > 0 ? span : 1 };
+  }
+  if (realSec >= arr[n - 1]) {
+    const span = n >= 2 ? arr[n - 1] - arr[n - 2] : 1;
+    return { frameIdx: n - 1, secPerFrame: span > 0 ? span : 1 };
+  }
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid] <= realSec) lo = mid;
+    else hi = mid;
+  }
+  const span = arr[hi] - arr[lo];
+  const secPerFrame = span > 0 ? span / (hi - lo) : 1;
+  const frameIdx = span > 0 ? lo + (realSec - arr[lo]) / span * (hi - lo) : lo;
+  return { frameIdx, secPerFrame };
 }
 
 export class StereoSync {
@@ -31,7 +79,11 @@ export class StereoSync {
   buffering = false;
   private virtualUTC = 0;
   private lastWall = 0;
-  private driftThreshold = 0.1; // video-seconds
+  // Tolerated drift before we re-seek. Large because mid-playback seeks
+  // momentarily blank the <video> element and appear as black flashes in
+  // the stereo texture. With per-tick local-rate `playbackRate` updates the
+  // steady-state drift is ~0, so this only trips on genuine scrubs.
+  private driftThreshold = 1.5; // video-seconds
 
   setTracks(left: VideoTrack, right: VideoTrack) {
     this.left = left;
@@ -93,8 +145,8 @@ export class StereoSync {
 
   setSimRate(simRate: number) {
     this.simRate = simRate;
-    if (this.left) this.left.el.playbackRate = simRate / this.left.speedup;
-    if (this.right) this.right.el.playbackRate = simRate / this.right.speedup;
+    // No need to update playbackRate here; applyOne() refreshes it every tick
+    // from the *local* anchor slope.
   }
 
   play() {
@@ -126,7 +178,9 @@ export class StereoSync {
   private isBuffering(): boolean {
     for (const t of [this.left, this.right]) {
       if (!t) continue;
-      const target = (this.virtualUTC - t.startUTC) / t.speedup;
+      const realSec = this.virtualUTC - t.startUTC;
+      const { frameIdx } = frameIdxAndSlopeForRealSec(t.frameRealTimesSec, realSec);
+      const target = frameIdx / t.videoFps;
       if (target < 0 || target >= t.duration) continue; // out of range — irrelevant
       if (t.el.seeking) return true;
       // HAVE_FUTURE_DATA = 3
@@ -162,11 +216,15 @@ export class StereoSync {
   }
 
   private applyOne(t: VideoTrack, forceSeek: boolean) {
-    const target = (this.virtualUTC - t.startUTC) / t.speedup;
+    // Piecewise-linear inverse: sim-UTC → real-sec since video start → fractional
+    // frame via the calibrator anchors → video-time.
+    const realSec = this.virtualUTC - t.startUTC;
+    const { frameIdx, secPerFrame } = frameIdxAndSlopeForRealSec(t.frameRealTimesSec, realSec);
+    const target = frameIdx / t.videoFps;
+    const desiredRate = this.simRate / (secPerFrame * t.videoFps);
     const inRange = target >= 0 && target < t.duration;
     if (!inRange) {
       if (!t.el.paused) t.el.pause();
-      // Park at the boundary frame so the texture isn't undefined.
       const clamped = target < 0 ? 0 : Math.max(0, t.duration - 1 / 30);
       if (Math.abs(t.el.currentTime - clamped) > 0.05 && !t.el.seeking) {
         t.el.currentTime = clamped;
@@ -174,29 +232,47 @@ export class StereoSync {
       return;
     }
 
-    // Never issue a new seek while one is in flight — that's the seek loop.
     if (t.el.seeking) return;
+
+    // At sim rates so slow that the browser's playback-rate floor (~0.0625)
+    // would run the video visibly faster than asked, don't fight the clamp.
+    // Instead pause the element and seek to the integer-target frame; each
+    // frame then holds for the full wall-time the sim expects, and the
+    // cross-fade layer in main.ts smooths the seek transitions.
+    const pauseAndSeek = this.isPlaying && desiredRate < MIN_PLAYBACK_RATE;
 
     if (forceSeek) {
       t.el.currentTime = target;
-      t.el.playbackRate = this.simRate / t.speedup;
-      if (this.isPlaying) {
-        t.el.play().catch((err) => console.warn('[stereo-sync] play() failed:', err));
-      } else if (!t.el.paused) {
-        t.el.pause();
+      if (pauseAndSeek) {
+        if (!t.el.paused) t.el.pause();
+      } else {
+        t.el.playbackRate = clampPlaybackRate(desiredRate);
+        if (this.isPlaying) {
+          t.el.play().catch((err) => console.warn('[stereo-sync] play() failed:', err));
+        } else if (!t.el.paused) {
+          t.el.pause();
+        }
+      }
+      return;
+    }
+
+    if (pauseAndSeek) {
+      if (!t.el.paused) t.el.pause();
+      // Only seek when the integer target frame has changed — otherwise we'd
+      // re-seek every tick and trigger a flash storm.
+      const targetInt = Math.floor(frameIdx) / t.videoFps;
+      if (Math.abs(t.el.currentTime - targetInt) > 0.5 / t.videoFps) {
+        t.el.currentTime = targetInt;
       }
       return;
     }
 
     if (this.isPlaying) {
+      t.el.playbackRate = clampPlaybackRate(desiredRate);
       if (t.el.paused) {
-        // Seek only if we're meaningfully off; otherwise let the video
-        // resume from wherever it actually is. This avoids a seek-loop
-        // when virtualUTC is being held by isBuffering().
         if (Math.abs(t.el.currentTime - target) > this.driftThreshold) {
           t.el.currentTime = target;
         }
-        t.el.playbackRate = this.simRate / t.speedup;
         t.el.play().catch((err) => console.warn('[stereo-sync] play() failed:', err));
       } else {
         const drift = t.el.currentTime - target;

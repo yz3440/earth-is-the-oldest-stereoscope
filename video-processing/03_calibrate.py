@@ -4,8 +4,8 @@ Calibrate a stabilized moon video against the analytical raw-view field
 rotation curve.
 
 Emits an anchor table `frame_to_utc.json` of (frame_idx, utc) pairs that
-04_rotate.py uses to convert each output frame into an absolute UTC, then
-computes the stereo correction on-the-fly from astro.py.
+04_simulate_rotation.py uses to convert each output frame into an absolute
+UTC, then computes the stereo correction from astro.py.
 
 Derives the target rotation curve analytically from astronomy-engine — no
 viewer involvement, no reference-PNG export.
@@ -22,7 +22,7 @@ Pipeline:
     4. Pass 2 (per-sample inversion): smooth the measured curve with
        Savitzky-Golay, then for each sample invert the target curve inside
        a ±60 min window around the linear-fit seed UTC.
-    5. Emit anchors compatible with 04_rotate.py's --frame-to-utc consumer.
+    5. Emit anchors consumed by 04_simulate_rotation.py.
 
 Pass --end-frame only to exclude known-bad tails (e.g. the eclipse-totality
 window on Boston where 02_stabilize.py loses lock on the moon).
@@ -140,6 +140,12 @@ def main() -> None:
                         help="Reject per-sample deltas with |value| > this. Guards "
                              "against ECC converging 60-120° off the truth (the "
                              "moon is nearly circular).")
+    parser.add_argument("--outlier-tol-deg", type=float, default=1.0,
+                        help="Per-step deltas deviating from the analytical "
+                             "prediction by more than this are treated as noise "
+                             "and bridged with the analytical delta (default 1.0). "
+                             "Guards against long low-amplitude drift, e.g. cloud "
+                             "cover that passes the min-ecc gate but adds bias.")
     parser.add_argument("--target-sign", type=int, choices=[1, -1], default=None,
                         help="Manually flip the analytical curve sign if the "
                              "shape-match residual is high. By default the script "
@@ -213,47 +219,107 @@ def main() -> None:
     sample_frames = np.array(sample_frames, dtype=float)
     cumul = np.array(cumul)
     scores = np.array(scores)
+    deltas = np.diff(cumul, prepend=0.0)
 
     if clamped:
         print(f"  Clamped {clamped} samples with |delta| > {args.max_delta_deg}°")
 
-    keep = scores >= args.min_ecc
-    n_kept = int(keep.sum())
-    print(f"  Measured {len(sample_frames)} samples, kept {n_kept} with ECC ≥ {args.min_ecc}")
-    print(f"  Cumulative range on kept samples: "
-          f"[{cumul[keep].min():+.2f}°, {cumul[keep].max():+.2f}°]")
-    if n_kept < 10:
+    score_ok = scores >= args.min_ecc
+    n_score_ok = int(score_ok.sum())
+    print(f"  Measured {len(sample_frames)} samples, "
+          f"{n_score_ok} with ECC ≥ {args.min_ecc}")
+    if n_score_ok < 10:
         print("Error: <10 high-confidence samples", file=sys.stderr)
         sys.exit(1)
 
-    kept_frames = sample_frames[keep]
-    kept_rots = cumul[keep]
-
-    # ---- Pass 1: linear-fit effective_fps ----
-    def cost(fps: float, target: np.ndarray) -> float:
+    # ---- Sign auto-detect + preliminary fit (used for outlier bridging) ----
+    def cost_on(frames: np.ndarray, rots: np.ndarray,
+                fps: float, target: np.ndarray) -> float:
         if fps <= 0:
             return 1e9
-        secs = kept_frames / fps
+        secs = frames / fps
         expected = np.interp(secs, target_secs, target)
-        resid = kept_rots - expected
+        resid = rots - expected
         return float((resid - resid.mean()).std())
 
-    # If user didn't pin the sign, pick the one that gives the better linear fit.
+    f_ok = sample_frames[score_ok]
+    r_ok = cumul[score_ok]
+
     if args.target_sign is not None:
         sign = args.target_sign
     else:
         print("\nAuto-detecting analytical-curve sign (trying both ±1)...")
-        result_pos = minimize_scalar(lambda f: cost(f, target_rots),
-                                     bounds=tuple(args.rate_bounds), method="bounded",
-                                     options={"xatol": 1e-6})
-        result_neg = minimize_scalar(lambda f: cost(f, -target_rots),
-                                     bounds=tuple(args.rate_bounds), method="bounded",
-                                     options={"xatol": 1e-6})
-        sign = 1 if result_pos.fun <= result_neg.fun else -1
-        print(f"  sign=+1 residual std: {result_pos.fun:.3f}°")
-        print(f"  sign=-1 residual std: {result_neg.fun:.3f}°")
+        rp = minimize_scalar(lambda f: cost_on(f_ok, r_ok, f, target_rots),
+                             bounds=tuple(args.rate_bounds), method="bounded",
+                             options={"xatol": 1e-6})
+        rn = minimize_scalar(lambda f: cost_on(f_ok, r_ok, f, -target_rots),
+                             bounds=tuple(args.rate_bounds), method="bounded",
+                             options={"xatol": 1e-6})
+        sign = 1 if rp.fun <= rn.fun else -1
+        print(f"  sign=+1 residual std: {rp.fun:.3f}°")
+        print(f"  sign=-1 residual std: {rn.fun:.3f}°")
         print(f"  Selected sign={sign:+d}")
     signed_target = sign * target_rots
+
+    print("\nPreliminary fit on score-kept samples (for outlier bridging)...")
+    prelim = minimize_scalar(
+        lambda f: cost_on(f_ok, r_ok, f, signed_target),
+        bounds=tuple(args.rate_bounds), method="bounded",
+        options={"xatol": 1e-6})
+    prelim_spf = 1.0 / float(prelim.x)
+    print(f"  fps={prelim.x:.4f}  resid std={prelim.fun:.3f}°")
+
+    # ---- Bridge noisy / cloudy runs ----
+    t_at_sample = prelim_spf * sample_frames
+    expected_cumul = np.interp(t_at_sample, target_secs, signed_target)
+    expected_cumul = expected_cumul - expected_cumul[0]
+    expected_deltas = np.diff(expected_cumul, prepend=0.0)
+
+    step_bad = (scores < args.min_ecc) | (
+        np.abs(deltas - expected_deltas) > args.outlier_tol_deg)
+    step_bad[0] = False  # reference sample has no measurement
+
+    runs: list[tuple[int, int]] = []
+    i = 0
+    while i < len(step_bad):
+        if step_bad[i]:
+            j = i
+            while j < len(step_bad) and step_bad[j]:
+                j += 1
+            runs.append((i, j))
+            i = j
+        else:
+            i += 1
+    n_bridged = sum(j - i for i, j in runs)
+    if runs:
+        print(f"\nBridging {n_bridged} noisy samples in {len(runs)} run(s) "
+              f"with analytical deltas:")
+        for (i0, i1) in runs:
+            f0, f1 = int(sample_frames[i0]), int(sample_frames[i1 - 1])
+            utc0 = video_start + timedelta(seconds=prelim_spf * f0)
+            utc1 = video_start + timedelta(seconds=prelim_spf * f1)
+            print(f"  frames [{f0:>6d}, {f1:>6d}]  ({i1 - i0} samples)  "
+                  f"≈ UTC [{utc0.strftime('%H:%M')}, {utc1.strftime('%H:%M')}]")
+    else:
+        print("\nNo noisy runs detected beyond per-step tolerance.")
+
+    deltas_fixed = deltas.copy()
+    deltas_fixed[step_bad] = expected_deltas[step_bad]
+    cumul_fixed = np.cumsum(deltas_fixed)
+
+    real_mask = ~step_bad
+    real_mask[0] = True  # keep reference sample
+    kept_frames = sample_frames[real_mask]
+    kept_rots = cumul_fixed[real_mask]
+    n_kept = len(kept_frames)
+    print(f"  Post-bridge: {n_kept} real samples retained for fit "
+          f"(excluded {len(sample_frames) - n_kept} bridged)")
+    print(f"  Corrected cumulative range on real samples: "
+          f"[{kept_rots.min():+.2f}°, {kept_rots.max():+.2f}°]")
+
+    # ---- Pass 1: linear-fit effective_fps ----
+    def cost(fps: float, target: np.ndarray) -> float:
+        return cost_on(kept_frames, kept_rots, fps, target)
 
     print("\nFitting effective_timelapse_fps by rotation-curve overlay...")
     result = minimize_scalar(lambda f: cost(f, signed_target),
@@ -374,7 +440,7 @@ def main() -> None:
     with open(args.out, "w") as f:
         json.dump(out, f, indent=2)
     print(f"\nAnchor table → {args.out}")
-    print(f"Use with: 04_rotate.py ... --frame-to-utc {args.out}")
+    print(f"Use with: 04_simulate_rotation.py <stabilized.mp4> <video_meta.json> {args.out}")
 
 
 if __name__ == "__main__":

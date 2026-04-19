@@ -7,8 +7,8 @@ dist
 *.mp4
 *.zip
 
-# Exception: commit the compressed web videos served by the web-2 viewer
-!web-2/public/footage/**/*_web.mp4
+# Exception: commit the compressed web videos served by the frontend viewer
+!frontend/public/footage/**/*_web.mp4
 
 # Stabilize pipeline intermediate / output files (regenerable from raw mp4 + viewer)
 videos/**/*_offsets.json

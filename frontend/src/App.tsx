@@ -7,7 +7,7 @@ import { SceneLabels } from './components/SceneLabels';
 import type { EyeData } from './components/EyeOverlay';
 import type { PlanetaryScene, EyeSide } from './scene';
 import type { Manifest } from './manifest';
-import { view } from './state';
+import { view, panelOpen, isNarrow } from './state';
 
 export interface AppProps {
   scene: PlanetaryScene | null;
@@ -21,6 +21,9 @@ export interface AppProps {
 
 export function App({ scene, manifest, boston, santiago, videos, getAngleRad, getCovers }: AppProps) {
   const showStereo = view.value === 'stereo';
+  // Desktop horizontal controls bar sits at bottom:40 (above BottomBar);
+  // lift ProgressTicks above it when shown.
+  const progressBottom = !isNarrow.value && panelOpen.value ? 80 : 40;
   return (
     <div class="relative w-full h-full overflow-hidden">
       {/* Stereo canvas — always mounted, hidden in sim view */}
@@ -46,7 +49,7 @@ export function App({ scene, manifest, boston, santiago, videos, getAngleRad, ge
       )}
 
       {/* Progress bar + bottom bar (bottom bar hosts the controls popover) */}
-      <div class="absolute left-0 right-0" style={{ bottom: 40, zIndex: 20, background: 'rgba(0,0,0,0.85)', padding: '0 14px' }}>
+      <div class="absolute left-0 right-0" style={{ bottom: progressBottom, zIndex: 20, background: 'rgba(0,0,0,0.85)', padding: '0 14px' }}>
         <ProgressTicks manifest={manifest} />
       </div>
       <BottomBar />

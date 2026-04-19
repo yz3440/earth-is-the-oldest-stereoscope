@@ -145,9 +145,9 @@ export function EyeOverlay({
   const regions = eyeRegions.value;
   void formatPhase; // keep reference; actual phase text is already in data
   void formatEclipsePhase;
-  // When flipHead is on, the stereo compositor swaps L/R textures (via
-  // effectiveSwap = swap XOR flipHead), so Boston video ends up on the
-  // user's right eye and vice versa. Swap the data labels to match.
+  // When flipHead is on, the stereo compositor swaps L/R textures, so
+  // Boston video ends up on the user's right eye and vice versa. Swap
+  // the data labels to match.
   const flipped = flipHead.value;
   const leftData  = flipped ? santiago : boston;
   const rightData = flipped ? boston   : santiago;

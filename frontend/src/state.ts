@@ -24,10 +24,9 @@ export const layout = signal<Layout>('sbs-half');
 export const encoding = signal<Encoding>('none');
 export const sourceMode = signal<SourceMode>('auto');
 export const correction = signal<boolean>(true);
-export const swap = signal<boolean>(false);
 // Head-flip: rotate the full presentation by 180° and swap L/R eye
-// assignment (XOR with `swap`). The shown image ends up upside-down with
-// correct stereo depth. In the sim view this flips the 3D canvas too.
+// assignment. The shown image ends up upside-down with correct stereo
+// depth. In the sim view this flips the 3D canvas too.
 export const flipHead = signal<boolean>(false);
 export const parallaxPx = signal<number>(0);
 

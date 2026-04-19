@@ -484,12 +484,14 @@ function animate(realTime: number) {
 
   if (!videosReady.value) {
     const loading = getLoadingCanvas();
-    const flip = flipHead.value ? Math.PI : 0;
     stereo.uploadSource('left', loading);
     stereo.uploadSource('right', loading);
+    // LOADING placeholder stays upright regardless of flipHead — rotating
+    // the text 180° is user-hostile. The swap uniform still swaps L/R eye
+    // assignment, but neither side is actually flipped visually.
     stereo.render({
-      leftAngleRad: flip,
-      rightAngleRad: flip,
+      leftAngleRad: 0,
+      rightAngleRad: 0,
       leftAlpha: 1,
       rightAlpha: 1,
       layout: layout.value,
@@ -523,12 +525,12 @@ function animate(realTime: number) {
   // kind: a video upload silently no-ops while the element is mid-seek with
   // readyState<2, which leaves the previous source (often NO SIGNAL) in the
   // slot. Rotating that stale canvas by a stereo correction angle was the
-  // "rotated NO SIGNAL" bug.
-  const flip = flipHead.value ? Math.PI : 0;
+  // "rotated NO SIGNAL" bug. Placeholders also skip the flipHead 180° — a
+  // right-side-up text label is always more useful than an upside-down one.
   const leftAngleRad =
-    stereo.getSlotKind('left') === 'video' ? sideAngleRad('boston', bostonVideo) : flip;
+    stereo.getSlotKind('left') === 'video' ? sideAngleRad('boston', bostonVideo) : 0;
   const rightAngleRad =
-    stereo.getSlotKind('right') === 'video' ? sideAngleRad('santiago', santiagoVideo) : flip;
+    stereo.getSlotKind('right') === 'video' ? sideAngleRad('santiago', santiagoVideo) : 0;
 
   const leftAlpha =
     leftSrc.kind === 'video' && bostonVideo

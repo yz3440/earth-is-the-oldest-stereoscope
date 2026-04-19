@@ -58,14 +58,16 @@ export class PlanetaryScene {
     earthDayTex.colorSpace = THREE.SRGBColorSpace;
     earthNightTex.colorSpace = THREE.SRGBColorSpace;
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    // logarithmicDepthBuffer lets us span Earth-radius scale (~1) up to 1 AU
+    // (~23k ER) for the Sun without z-fighting on close objects.
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, logarithmicDepthBuffer: true });
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(1, 1);
     this.renderer.setClearColor(0x000000);
 
     this.scene = new THREE.Scene();
 
-    this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 500);
+    this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100000);
     this.camera.position.set(30, 50, 80);
 
     const earthGeo = new THREE.SphereGeometry(1, 64, 48);
@@ -150,25 +152,48 @@ export class PlanetaryScene {
     }));
     this.scene.add(this.penumbraCone);
 
-    // Warm yellow — the one non-grayscale element in the sim; lets the Sun
-    // read as a source and anchor the eye against the black sky.
+    // Physically sized Sun (~109 ER radius) at 1 AU. MeshBasicMaterial keeps
+    // the disk fully bright regardless of scene lighting. The halo Sprite is
+    // an additive radial gradient that gives the bright-source feel without
+    // breaking physical scale — the disk underneath stays angularly correct.
     this.sunMarker = new THREE.Mesh(
-      new THREE.SphereGeometry(2, 16, 12),
-      new THREE.MeshBasicMaterial({ color: 0xffd766 }),
+      new THREE.SphereGeometry(SUN_RADIUS_ER, 64, 32),
+      new THREE.MeshBasicMaterial({ color: 0xfff5e0 }),
     );
+    const haloMat = new THREE.SpriteMaterial({
+      map: createGlowTexture(),
+      color: 0xffd766,
+      blending: THREE.AdditiveBlending,
+      transparent: true,
+      depthWrite: false,
+    });
+    const halo = new THREE.Sprite(haloMat);
+    halo.scale.set(SUN_RADIUS_ER * 8, SUN_RADIUS_ER * 8, 1);
+    this.sunMarker.add(halo);
     this.scene.add(this.sunMarker);
 
+    // Place stars on a shell well outside 1 AU so the Sun disk is never
+    // occluded by foreground star points. Sized so they read as pinpoints
+    // regardless of camera distance.
     const starsGeo = new THREE.BufferGeometry();
     const starPositions = new Float32Array(3000);
-    for (let i = 0; i < 3000; i++) starPositions[i] = (Math.random() - 0.5) * 800;
+    const STAR_SHELL = 80000;
+    for (let i = 0; i < 1000; i++) {
+      const u = Math.random() * 2 - 1;
+      const t = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(1 - u * u);
+      starPositions[i * 3 + 0] = Math.cos(t) * r * STAR_SHELL;
+      starPositions[i * 3 + 1] = Math.sin(t) * r * STAR_SHELL;
+      starPositions[i * 3 + 2] = u * STAR_SHELL;
+    }
     starsGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-    this.scene.add(new THREE.Points(starsGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.3 })));
+    this.scene.add(new THREE.Points(starsGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 80, sizeAttenuation: true })));
 
     const TEL_FOV = 3;
-    this.bostonRawCam = new THREE.PerspectiveCamera(TEL_FOV, 1, 1, 200);
-    this.bostonCorrectedCam = new THREE.PerspectiveCamera(TEL_FOV, 1, 1, 200);
-    this.santiagoRawCam = new THREE.PerspectiveCamera(TEL_FOV, 1, 1, 200);
-    this.santiagoCorrectedCam = new THREE.PerspectiveCamera(TEL_FOV, 1, 1, 200);
+    this.bostonRawCam = new THREE.PerspectiveCamera(TEL_FOV, 1, 1, 100000);
+    this.bostonCorrectedCam = new THREE.PerspectiveCamera(TEL_FOV, 1, 1, 100000);
+    this.santiagoRawCam = new THREE.PerspectiveCamera(TEL_FOV, 1, 1, 100000);
+    this.santiagoCorrectedCam = new THREE.PerspectiveCamera(TEL_FOV, 1, 1, 100000);
   }
 
   getDomElement(): HTMLCanvasElement {
@@ -181,7 +206,7 @@ export class PlanetaryScene {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
     this.controls.minDistance = 3;
-    this.controls.maxDistance = 300;
+    this.controls.maxDistance = 50000;
   }
 
   resize(w: number, h: number) {
@@ -197,7 +222,7 @@ export class PlanetaryScene {
     this.moon.position.copy(moonScene);
 
     const sunDir = realSunPos.clone().normalize();
-    this.sunMarker.position.copy(sunDir.clone().multiplyScalar(200));
+    this.sunMarker.position.copy(realSunPos);
 
     const bostonScene = toThree(frame.bostonPos, s);
     const santiagoScene = toThree(frame.santiagoPos, s);
@@ -384,6 +409,23 @@ const PIP_KEYS = [
   'santiago_raw',
   'santiago_corrected',
 ] as const;
+
+function createGlowTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d')!;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0.0, 'rgba(255, 245, 220, 1.0)');
+  g.addColorStop(0.15, 'rgba(255, 220, 140, 0.55)');
+  g.addColorStop(0.4, 'rgba(255, 180, 80, 0.18)');
+  g.addColorStop(1.0, 'rgba(255, 180, 80, 0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
 
 function updateLine(line: THREE.Line, from: THREE.Vector3, to: THREE.Vector3) {
   const positions = line.geometry.attributes.position as THREE.BufferAttribute;

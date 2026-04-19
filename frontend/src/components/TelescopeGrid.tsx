@@ -414,14 +414,15 @@ export function TelescopeGrid({
           : videos.santiago;
       // getAngleRad already includes the flip π (from main.tsx); LOCAL
       // HORIZON tiles add flip locally since they show the raw orientation.
-      // CORR tiles only apply the correction angle when the actual video
-      // is on screen — LOADING/NO SIGNAL placeholders stay upright.
+      // LOADING/NO SIGNAL placeholders stay upright in every tile — rotating
+      // the text 180° on flipHead is user-hostile, so placeholders use angle
+      // 0 regardless of flipHead state.
       const bIsVideo = bCov && !scrub;
       const sIsVideo = sCov && !scrub;
-      drawTo(r['lh-vid-b'], bSrc, flip);
-      drawTo(r['lh-vid-s'], sSrc, flip);
-      drawTo(r['es-vid-b'], bSrc, bIsVideo ? getAngleRad('boston') : flip);
-      drawTo(r['es-vid-s'], sSrc, sIsVideo ? getAngleRad('santiago') : flip);
+      drawTo(r['lh-vid-b'], bSrc, bIsVideo ? flip : 0);
+      drawTo(r['lh-vid-s'], sSrc, sIsVideo ? flip : 0);
+      drawTo(r['es-vid-b'], bSrc, bIsVideo ? getAngleRad('boston') : 0);
+      drawTo(r['es-vid-s'], sSrc, sIsVideo ? getAngleRad('santiago') : 0);
     };
     tick();
     return () => cancelAnimationFrame(raf);

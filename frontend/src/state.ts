@@ -12,7 +12,7 @@ export type Encoding =
 export type SourceMode = 'auto' | 'video-only' | 'sim-only';
 export type View = 'stereo' | 'sim';
 
-export const RATE_STEPS = [1, 2, 5, 10, 30, 60, 120] as const;
+export const RATE_STEPS = [1, 2, 5, 10, 30, 60, 120, 240, 480] as const;
 export const DEFAULT_RATE_INDEX = 4;
 
 export const currentTime = signal<number>(SIM_START.getTime());

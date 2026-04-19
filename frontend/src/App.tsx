@@ -4,6 +4,7 @@ import { EyeOverlay } from './components/EyeOverlay';
 import { SimView } from './components/SimView';
 import { TelescopeGrid } from './components/TelescopeGrid';
 import { SceneLabels } from './components/SceneLabels';
+import { WelcomeModal } from './components/WelcomeModal';
 import type { EyeData } from './components/EyeOverlay';
 import type { PlanetaryScene, EyeSide } from './scene';
 import type { Manifest } from './manifest';
@@ -53,6 +54,9 @@ export function App({ scene, manifest, boston, santiago, videos, getAngleRad, ge
         <ProgressTicks manifest={manifest} />
       </div>
       <BottomBar />
+
+      {/* Welcome modal — shown on first visit, re-openable via state. */}
+      <WelcomeModal />
     </div>
   );
 }

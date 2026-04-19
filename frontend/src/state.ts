@@ -34,6 +34,15 @@ export const view = signal<View>('stereo');
 export const panelOpen = signal<boolean>(false);
 export const showTelescopes = signal<boolean>(true);
 
+// Welcome modal — shown on every load.
+export const welcomeOpen = signal<boolean>(true);
+export function dismissWelcome() {
+  welcomeOpen.value = false;
+}
+export function openWelcome() {
+  welcomeOpen.value = true;
+}
+
 // True while the user is actively dragging the progress bar. Sources fall
 // back to the sim PIP during a scrub: the video element lags the seek and
 // applying the new correction angle to the still-painted previous frame

@@ -26,6 +26,7 @@ import {
   sourceMode,
   correction,
   flipHead,
+  isNarrow,
   parallaxPx,
   view,
   showTelescopes,
@@ -304,7 +305,18 @@ function buildEyeData(
 ): EyeData {
   const m = manifest;
   const city = m ? m[side].city : side === 'boston' ? 'Boston' : 'Santiago';
-  const region = side === 'boston' ? 'Massachusetts, USA' : 'Chile';
+  // Boston (northern telescope) maps to the left eye by default; flipHead
+  // swaps eye assignment, so each pole's side flips with it. Mobile uses
+  // abbreviated form (N = L) to save horizontal space.
+  const flipped = flipHead.value;
+  const narrow = isNarrow.value;
+  const baseRegion = side === 'boston' ? 'United States' : 'Chile';
+  const hemisphere = side === 'boston' ? (narrow ? 'N' : 'North') : (narrow ? 'S' : 'South');
+  const eyeSide =
+    side === 'boston'
+      ? (flipped ? (narrow ? 'R' : 'Right') : (narrow ? 'L' : 'Left'))
+      : (flipped ? (narrow ? 'L' : 'Left') : (narrow ? 'R' : 'Right'));
+  const region = `${baseRegion} (${hemisphere} = ${eyeSide})`;
   const lat = m ? m[side].lat : side === 'boston' ? 42.36 : -33.45;
   const lon = m ? m[side].lon : side === 'boston' ? -71.06 : -70.66;
   return {

@@ -1,6 +1,6 @@
 // Manifest loader. Reads video_meta.json + stereo_angles.json (emitted by
 // 04_simulate_rotation.py) directly from /footage/<station>/. The station
-// dirs under /web-2/public/footage/ hold the compressed stabilized videos
+// dirs under /frontend/public/footage/ hold the compressed stabilized videos
 // plus the per-frame angle + timing anchors the viewer needs to rotate
 // frames on-the-fly.
 

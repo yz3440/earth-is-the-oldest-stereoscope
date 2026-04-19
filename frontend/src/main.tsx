@@ -51,7 +51,7 @@ try {
   scene = new PlanetaryScene();
   scene.setPIPOutputsEnabled(true);
 } catch (err) {
-  console.error('[web-3] scene init failed (WebGL2 required):', err);
+  console.error('[frontend] scene init failed (WebGL2 required):', err);
   // Stub scene for typechecks; app will render without sim view.
   scene = null as unknown as PlanetaryScene;
 }
@@ -106,7 +106,7 @@ async function bootManifest() {
   try {
     manifest = await loadManifest();
   } catch (err) {
-    console.warn('[web-3] manifest failed; sim-only fallback:', err);
+    console.warn('[frontend] manifest failed; sim-only fallback:', err);
     return;
   }
   bostonVideo = makeVideo(manifest.boston.videoUrl);
@@ -389,7 +389,7 @@ function initStereoCanvas() {
     window.addEventListener('resize', resize);
   } catch (err) {
     console.error(
-      '[web-3] stereo renderer init failed (WebGL2 required):',
+      '[frontend] stereo renderer init failed (WebGL2 required):',
       err,
     );
   }

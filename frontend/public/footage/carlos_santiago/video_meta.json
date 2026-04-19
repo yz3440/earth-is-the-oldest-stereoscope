@@ -1,0 +1,14 @@
+{
+  "camera": "santiago",
+  "operator": "Carlos",
+  "location": {
+    "city": "Santiago",
+    "lat": -33.45,
+    "lon": -70.66
+  },
+  "video_start_utc": "2026-03-03T00:40:00Z",
+  "video_start_local": "2026-03-02T21:40:00-03:00",
+  "timezone": "CLT (UTC-3)",
+  "timelapse_fps": 1,
+  "moon_out_of_frame_video_time": "00:19:01"
+}

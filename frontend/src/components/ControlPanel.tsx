@@ -1,13 +1,40 @@
-// Controls panel body. Rendered inside a popover mounted from BottomBar;
-// the popover handles open/closed state and positioning.
+// Controls panel body. Rendered in two orientations:
+//   - vertical: inside the popover on mobile (isNarrow)
+//   - horizontal: inside the desktop controls bar above BottomBar
+// Both share the same signals and input elements; only layout differs.
 
-import { layout, encoding, sourceMode, correction, swap, flipHead, parallaxPx, view, showTelescopes } from '../state';
+import { layout, encoding, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes } from '../state';
 import type { Layout, Encoding, SourceMode } from '../state';
+import { TooltipLabel } from './Tooltip';
 
-function Row({ label, children }: { label: string; children: any }) {
+type Orientation = 'vertical' | 'horizontal';
+
+const TOOLTIPS = {
+  LAYOUT: 'How the two eye images are arranged on screen (side-by-side or top-bottom, full or half width).',
+  ENCODING: 'How the stereo pair is combined for viewing: anaglyph (colored glasses), frame-sequential (shutter glasses), or none (raw).',
+  SOURCE: 'Pick captured video, 3D simulation, or auto (video when available, sim as fallback).',
+  CORRECTION: 'Rotate each eye image so the stereo baseline is horizontal (uses telescope orientation data).',
+  'FLIP HEAD': 'Flip the view 180° and swap eyes — useful for lying on your back or upside-down headsets.',
+  PARALLAX: 'Horizontal shift between eyes in pixels — adjusts perceived depth.',
+  TELESCOPES: 'Show or hide the telescope grid overlay in the 3D scene.',
+  FOCUS: 'Center the 3D camera on the full system, Earth, or the Moon.',
+} as const;
+
+type LabelKey = keyof typeof TOOLTIPS;
+
+function VRow({ label, children }: { label: LabelKey; children: any }) {
   return (
     <div class="flex items-center justify-between gap-3 py-1.5">
-      <span class="text-[11px] opacity-60 tracking-wider">{label}</span>
+      <TooltipLabel text={label} tooltip={TOOLTIPS[label]} className="text-[11px] opacity-60 tracking-wider" />
+      <div class="flex items-center">{children}</div>
+    </div>
+  );
+}
+
+function HCell({ label, children }: { label: LabelKey; children: any }) {
+  return (
+    <div class="flex items-center gap-2" style={{ flex: 'none' }}>
+      <TooltipLabel text={label} tooltip={TOOLTIPS[label]} className="text-[10px] opacity-60 tracking-wider" />
       <div class="flex items-center">{children}</div>
     </div>
   );
@@ -63,97 +90,167 @@ const SOURCE_OPTS: { v: SourceMode; l: string }[] = [
   { v: 'sim-only',   l: 'sim only'   },
 ];
 
+function LayoutSelect() {
+  return (
+    <select
+      value={layout.value}
+      onChange={(e) => (layout.value = (e.target as HTMLSelectElement).value as Layout)}
+    >
+      {LAYOUT_OPTS.map((o) => (<option value={o.v}>{o.l}</option>))}
+    </select>
+  );
+}
+
+function EncodingSelect() {
+  return (
+    <select
+      value={encoding.value}
+      onChange={(e) => (encoding.value = (e.target as HTMLSelectElement).value as Encoding)}
+    >
+      {ENCODING_OPTS.map((o) => (<option value={o.v}>{o.l}</option>))}
+    </select>
+  );
+}
+
+function SourceSelect() {
+  return (
+    <select
+      value={sourceMode.value}
+      onChange={(e) => (sourceMode.value = (e.target as HTMLSelectElement).value as SourceMode)}
+    >
+      {SOURCE_OPTS.map((o) => (<option value={o.v}>{o.l}</option>))}
+    </select>
+  );
+}
+
+function ParallaxSlider({ width = 100 }: { width?: number }) {
+  return (
+    <div class="flex items-center gap-2">
+      <input
+        type="range"
+        min={-200}
+        max={200}
+        value={parallaxPx.value}
+        onInput={(e) => (parallaxPx.value = parseInt((e.target as HTMLInputElement).value))}
+        style={{ width }}
+      />
+      <span style={{ fontSize: 11, opacity: 0.7, minWidth: 36, textAlign: 'right' }}>
+        {parallaxPx.value > 0 ? '+' : ''}{parallaxPx.value}px
+      </span>
+      <button
+        type="button"
+        onClick={() => (parallaxPx.value = 0)}
+        style={{ padding: '2px 6px', fontSize: 10, opacity: 0.7 }}
+        title="Reset parallax to 0"
+      >
+        reset
+      </button>
+    </div>
+  );
+}
+
+function FocusButtons({ flex = 1 }: { flex?: number | string }) {
+  return (
+    <div class="flex gap-1">
+      {(['SYSTEM', 'EARTH', 'MOON'] as const).map((k) => (
+        <button
+          type="button"
+          data-focus={k}
+          style={{ flex, padding: '4px 8px', fontSize: 10, letterSpacing: '0.08em' }}
+        >
+          {k}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ---------- Vertical (popover) layout ----------
+
 export function ControlPanelBody() {
-  const isSim = view.value === 'sim';
   return (
     <div style={{ padding: '10px 12px 12px', width: 260 }}>
-      {!isSim && (
-        <>
-          <Row label="LAYOUT">
-            <select
-              value={layout.value}
-              onChange={(e) => (layout.value = (e.target as HTMLSelectElement).value as Layout)}
-            >
-              {LAYOUT_OPTS.map((o) => (<option value={o.v}>{o.l}</option>))}
-            </select>
-          </Row>
-          <Row label="ENCODING">
-            <select
-              value={encoding.value}
-              onChange={(e) => (encoding.value = (e.target as HTMLSelectElement).value as Encoding)}
-            >
-              {ENCODING_OPTS.map((o) => (<option value={o.v}>{o.l}</option>))}
-            </select>
-          </Row>
-          <Row label="SOURCE">
-            <select
-              value={sourceMode.value}
-              onChange={(e) => (sourceMode.value = (e.target as HTMLSelectElement).value as SourceMode)}
-            >
-              {SOURCE_OPTS.map((o) => (<option value={o.v}>{o.l}</option>))}
-            </select>
-          </Row>
-          <Row label="CORRECTION">
-            <Switch checked={correction.value} onToggle={() => (correction.value = !correction.value)} />
-          </Row>
-          <Row label="FLIP HEAD">
-            <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
-          </Row>
-          <Row label="SWAP EYES">
-            <Switch checked={swap.value} onToggle={() => (swap.value = !swap.value)} />
-          </Row>
-          <Row label="PARALLAX">
-            <div class="flex items-center gap-2">
-              <input
-                type="range"
-                min={-200}
-                max={200}
-                value={parallaxPx.value}
-                onInput={(e) => (parallaxPx.value = parseInt((e.target as HTMLInputElement).value))}
-                style={{ width: 100 }}
-              />
-              <span style={{ fontSize: 11, opacity: 0.7, minWidth: 36, textAlign: 'right' }}>
-                {parallaxPx.value > 0 ? '+' : ''}{parallaxPx.value}px
-              </span>
-            </div>
-          </Row>
-          <div class="flex justify-end pt-1">
-            <button
-              type="button"
-              onClick={() => (parallaxPx.value = 0)}
-              style={{ padding: '2px 8px', fontSize: 10, opacity: 0.7 }}
-            >
-              reset
-            </button>
-          </div>
-        </>
-      )}
-
-      {isSim && (
-        <>
-          <Row label="FLIP HEAD">
-            <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
-          </Row>
-          <Row label="TELESCOPES">
-            <Switch checked={showTelescopes.value} onToggle={() => (showTelescopes.value = !showTelescopes.value)} />
-          </Row>
-          <div class="pt-1 text-[10px] opacity-50" style={{ letterSpacing: '0.1em' }}>FOCUS</div>
-          <div class="flex gap-1 pt-1">
-            {(['SYSTEM', 'EARTH', 'MOON'] as const).map((k) => (
-              <button
-                type="button"
-                data-focus={k}
-                style={{ flex: 1, padding: '4px 0', fontSize: 10, letterSpacing: '0.08em' }}
-              >
-                {k}
-              </button>
-            ))}
-          </div>
-          <div class="text-[10px] opacity-50 pt-2" style={{ letterSpacing: '0.05em' }}>
-            drag to orbit · scroll to zoom
-          </div>
-        </>
-      )}
+      <StereoControls orientation="vertical" />
+      <SimControls orientation="vertical" />
     </div>
+  );
+}
+
+// ---------- Shared control groups (both orientations) ----------
+
+export function StereoControls({ orientation }: { orientation: Orientation }) {
+  if (view.value === 'sim') return null;
+
+  if (orientation === 'vertical') {
+    return (
+      <>
+        <VRow label="LAYOUT"><LayoutSelect /></VRow>
+        <VRow label="ENCODING"><EncodingSelect /></VRow>
+        <VRow label="SOURCE"><SourceSelect /></VRow>
+        <VRow label="CORRECTION">
+          <Switch checked={correction.value} onToggle={() => (correction.value = !correction.value)} />
+        </VRow>
+        <VRow label="FLIP HEAD">
+          <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
+        </VRow>
+        <VRow label="PARALLAX"><ParallaxSlider width={100} /></VRow>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <HCell label="LAYOUT"><LayoutSelect /></HCell>
+      <HCell label="ENCODING"><EncodingSelect /></HCell>
+      <HCell label="SOURCE"><SourceSelect /></HCell>
+      <HCell label="CORRECTION">
+        <Switch checked={correction.value} onToggle={() => (correction.value = !correction.value)} />
+      </HCell>
+      <HCell label="FLIP HEAD">
+        <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
+      </HCell>
+      <HCell label="PARALLAX"><ParallaxSlider width={120} /></HCell>
+    </>
+  );
+}
+
+export function SimControls({ orientation }: { orientation: Orientation }) {
+  if (view.value !== 'sim') return null;
+
+  if (orientation === 'vertical') {
+    return (
+      <>
+        <VRow label="FLIP HEAD">
+          <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
+        </VRow>
+        <VRow label="TELESCOPES">
+          <Switch checked={showTelescopes.value} onToggle={() => (showTelescopes.value = !showTelescopes.value)} />
+        </VRow>
+        <div class="pt-1">
+          <TooltipLabel text="FOCUS" tooltip={TOOLTIPS.FOCUS} className="text-[10px] opacity-50" style={{ letterSpacing: '0.1em' }} />
+        </div>
+        <div class="pt-1">
+          <FocusButtons flex={1} />
+        </div>
+        <div class="text-[10px] opacity-50 pt-2" style={{ letterSpacing: '0.05em' }}>
+          drag to orbit · scroll to zoom
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <HCell label="FLIP HEAD">
+        <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
+      </HCell>
+      <HCell label="TELESCOPES">
+        <Switch checked={showTelescopes.value} onToggle={() => (showTelescopes.value = !showTelescopes.value)} />
+      </HCell>
+      <HCell label="FOCUS"><FocusButtons flex="none" /></HCell>
+      <span class="text-[10px] opacity-50" style={{ letterSpacing: '0.05em', marginLeft: 8 }}>
+        drag to orbit · scroll to zoom
+      </span>
+    </>
   );
 }

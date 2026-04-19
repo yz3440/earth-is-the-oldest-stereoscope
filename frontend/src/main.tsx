@@ -25,7 +25,6 @@ import {
   encoding,
   sourceMode,
   correction,
-  swap,
   flipHead,
   parallaxPx,
   view,
@@ -484,7 +483,7 @@ function animate(realTime: number) {
       layout: layout.value,
       encoding: encoding.value,
       parallaxPx: parallaxPx.value,
-      swap: swap.value !== flipHead.value,
+      swap: flipHead.value,
       frameParity,
     });
     return;
@@ -536,7 +535,7 @@ function animate(realTime: number) {
     layout: layout.value,
     encoding: encoding.value,
     parallaxPx: parallaxPx.value,
-    swap: swap.value,
+    swap: false,
     frameParity,
   });
 }
@@ -574,7 +573,6 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === ']')
     rateIdx.value = clamp(rateIdx.value + 1, 0, RATE_STEPS.length - 1);
   else if (e.key === '0') rateIdx.value = DEFAULT_RATE_INDEX;
-  else if (e.key === 's') swap.value = !swap.value;
   else if (e.key === 'c') correction.value = !correction.value;
   else if (e.key === 'h') flipHead.value = !flipHead.value;
 });

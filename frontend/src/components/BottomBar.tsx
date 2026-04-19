@@ -12,7 +12,7 @@ import {
   isCompact,
 } from '../state';
 import { SIM_START, SIM_END } from '../astronomy';
-import { ControlPanelBody } from './ControlPanel';
+import { ControlPanelBody, StereoControls, SimControls } from './ControlPanel';
 
 const fmtUTC = (d: Date) => d.toISOString().slice(11, 16) + ' UTC';
 
@@ -90,6 +90,32 @@ function ControlsPopover({
       }}
     >
       <ControlPanelBody />
+    </div>
+  );
+}
+
+// Desktop-only horizontal controls bar stacked directly above the main
+// BottomBar. Mirrors the popover contents but spread inline.
+function DesktopControlsBar() {
+  return (
+    <div
+      class="flex items-center"
+      style={{
+        position: 'fixed',
+        left: 0,
+        right: 0,
+        bottom: 40,
+        height: 40,
+        zIndex: 20,
+        background: 'rgba(0,0,0,0.85)',
+        borderTop: '1px solid var(--line-2)',
+        padding: '0 14px',
+        gap: 18,
+        overflowX: 'auto',
+      }}
+    >
+      <StereoControls orientation="horizontal" />
+      <SimControls orientation="horizontal" />
     </div>
   );
 }
@@ -203,7 +229,8 @@ export function BottomBar() {
         <Tab id='sim' label={narrow ? 'SIM' : 'SIMULATION'} />
       </div>
 
-      <ControlsPopover anchorRef={anchorRef} />
+      {narrow && <ControlsPopover anchorRef={anchorRef} />}
+      {!narrow && panelOpen.value && <DesktopControlsBar />}
     </div>
   );
 }

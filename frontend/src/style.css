@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+/* Design tokens. Text is intentionally NOT pure #fff — pure white on black
+   burns at small sizes and reads as "cheap console". A warm near-white
+   (#e6e6e6) is calmer and still passes WCAG AAA on #000. All UI text reads
+   from var(--text); opacity steps derive the secondary / tertiary tiers. */
+:root {
+  --bg: #000;
+  --text: #c2c2c2;
+  --text-2: rgb(194 194 194 / 0.75);
+  --text-3: rgb(194 194 194 / 0.5);
+  --text-4: rgb(194 194 194 / 0.3);
+  --line: rgb(194 194 194 / 0.22);
+  --line-2: rgb(194 194 194 / 0.15);
+  --accent-fill: rgb(194 194 194 / 0.12);
+}
+
+@layer base {
+  html, body, #app {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-monospace, 'SF Mono', 'IBM Plex Mono', Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.35;
+    letter-spacing: 0.01em;
+  }
+  button {
+    font-family: inherit;
+    font-size: inherit;
+    color: inherit;
+    background: transparent;
+    border: 1px solid var(--line);
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) {
+    background: var(--accent-fill);
+  }
+  button:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+  select {
+    font-family: inherit;
+    font-size: inherit;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    padding: 3px 6px;
+    cursor: pointer;
+  }
+  select:hover {
+    border-color: var(--text-2);
+  }
+  input[type="range"] {
+    accent-color: var(--text);
+  }
+}
+
+/* Bare-text tab button (BottomBar STEREO / SIMULATION). Clears the global
+   button border + hover fill so the tab reads as inline nav; the active
+   underline is applied inline from the component. */
+.tab-bare {
+  border: none;
+}
+.tab-bare:hover:not(:disabled) {
+  background: transparent;
+  color: var(--text);
+}
+
+/* Stereo / sim canvas fills viewport */
+#stereo-canvas,
+#sim-canvas-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  image-rendering: pixelated;
+}
+#sim-canvas-host canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}

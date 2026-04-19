@@ -1,0 +1,25 @@
+{
+  "name": "stereo-moon-web-3",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.2",
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/three": "^0.183.1",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.1"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.8.2",
+    "astronomy-engine": "^2.1.19",
+    "preact": "^10.29.0",
+    "three": "^0.183.2"
+  }
+}

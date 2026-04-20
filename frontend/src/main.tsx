@@ -107,6 +107,12 @@ function makeVideo(src: string): HTMLVideoElement {
   });
   v.addEventListener('stalled', () => console.warn(`[video:${tag}] stalled ${state()}`));
   v.addEventListener('emptied', () => console.warn(`[video:${tag}] emptied ${state()}`));
+  v.addEventListener('abort', () => console.warn(`[video:${tag}] abort ${state()}`));
+  v.addEventListener('suspend', () => console.warn(`[video:${tag}] suspend ${state()}`));
+  v.addEventListener('waiting', () => console.warn(`[video:${tag}] waiting ${state()}`));
+  v.addEventListener('seeking', () => console.warn(`[video:${tag}] seeking → ${v.currentTime.toFixed(2)} ${state()}`));
+  v.addEventListener('seeked', () => console.warn(`[video:${tag}] seeked  @ ${v.currentTime.toFixed(2)} ${state()}`));
+  v.addEventListener('loadstart', () => console.warn(`[video:${tag}] loadstart ${state()}`));
   return v;
 }
 

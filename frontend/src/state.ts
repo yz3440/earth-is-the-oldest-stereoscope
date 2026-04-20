@@ -18,6 +18,10 @@ export const DEFAULT_RATE_INDEX = 4;
 export const currentTime = signal<number>(OVERLAP_START.getTime());
 export const playing = signal<boolean>(false);
 export const videosReady = signal<boolean>(false);
+// Aggregate download progress across both telescope videos, 0..1. Drives the
+// progress bar in the welcome modal. 1 means bytes are fully fetched; videos
+// may still be decoding — `videosReady` is the definitive "can play" flag.
+export const loadProgress = signal<number>(0);
 export const rateIdx = signal<number>(DEFAULT_RATE_INDEX);
 
 export const layout = signal<Layout>('sbs-half');

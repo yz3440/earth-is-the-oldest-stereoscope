@@ -92,9 +92,13 @@ const fadeState: Record<Side, FadeState> = {
   santiago: makeFadeState(),
 };
 
-function makeVideo(src: string): HTMLVideoElement {
+// Fetches the entire MP4 into memory and points <video> at a blob URL.
+// The deployed CDN/proxy serves these files without HTTP Range support, so
+// `<video src=URL>` can only seek inside the linearly-buffered region —
+// any scrub past it gets clamped to 0. Holding the file in a blob makes
+// `seekable` cover the full duration; every seek is instant memory access.
+async function makeVideo(src: string): Promise<HTMLVideoElement> {
   const v = document.createElement('video');
-  v.src = src;
   v.muted = true;
   v.playsInline = true;
   v.preload = 'auto';
@@ -106,13 +110,29 @@ function makeVideo(src: string): HTMLVideoElement {
     console.warn(`[video:${tag}] error code=${e?.code} msg=${e?.message} ${state()}`);
   });
   v.addEventListener('stalled', () => console.warn(`[video:${tag}] stalled ${state()}`));
-  v.addEventListener('emptied', () => console.warn(`[video:${tag}] emptied ${state()}`));
-  v.addEventListener('abort', () => console.warn(`[video:${tag}] abort ${state()}`));
-  v.addEventListener('suspend', () => console.warn(`[video:${tag}] suspend ${state()}`));
-  v.addEventListener('waiting', () => console.warn(`[video:${tag}] waiting ${state()}`));
-  v.addEventListener('seeking', () => console.warn(`[video:${tag}] seeking → ${v.currentTime.toFixed(2)} ${state()}`));
-  v.addEventListener('seeked', () => console.warn(`[video:${tag}] seeked  @ ${v.currentTime.toFixed(2)} ${state()}`));
-  v.addEventListener('loadstart', () => console.warn(`[video:${tag}] loadstart ${state()}`));
+
+  const res = await fetch(src);
+  if (!res.ok) throw new Error(`fetch ${src} failed: ${res.status}`);
+  const total = Number(res.headers.get('content-length')) || 0;
+  let received = 0;
+  const reader = res.body!.getReader();
+  const chunks: Uint8Array[] = [];
+  let lastLog = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    const now = performance.now();
+    if (now - lastLog > 500) {
+      const pct = total ? ((received / total) * 100).toFixed(1) : '?';
+      console.log(`[video:${tag}] downloading ${(received / 1e6).toFixed(1)}MB / ${(total / 1e6).toFixed(1)}MB (${pct}%)`);
+      lastLog = now;
+    }
+  }
+  const blob = new Blob(chunks as BlobPart[], { type: 'video/mp4' });
+  v.src = URL.createObjectURL(blob);
+  console.log(`[video:${tag}] blob ready (${(blob.size / 1e6).toFixed(1)}MB)`);
   return v;
 }
 
@@ -123,8 +143,10 @@ async function bootManifest() {
     console.warn('[frontend] manifest failed; sim-only fallback:', err);
     return;
   }
-  bostonVideo = makeVideo(manifest.boston.videoUrl);
-  santiagoVideo = makeVideo(manifest.santiago.videoUrl);
+  [bostonVideo, santiagoVideo] = await Promise.all([
+    makeVideo(manifest.boston.videoUrl),
+    makeVideo(manifest.santiago.videoUrl),
+  ]);
 
   const onceReady = (v: HTMLVideoElement) =>
     new Promise<void>((resolve) => {

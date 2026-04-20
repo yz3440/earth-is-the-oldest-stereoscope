@@ -14,6 +14,7 @@ import type { Manifest, Side } from './manifest';
 import { localTime, localDate, tzAbbrev } from './localtime';
 import { weatherFor } from './weather';
 import { getLoadingCanvas } from './loading';
+import footageSizes from 'virtual:footage-sizes';
 import { App } from './App';
 import type { EyeData } from './components/EyeOverlay';
 import {
@@ -115,7 +116,12 @@ async function makeVideo(
 
   const res = await fetch(src);
   if (!res.ok) throw new Error(`fetch ${src} failed: ${res.status}`);
-  const total = Number(res.headers.get('content-length')) || 0;
+  // Prefer the server-reported size; fall back to the build-time stat of the
+  // file in public/footage/ when the server omits Content-Length (e.g.
+  // chunked transfer on the deployed CDN — caught in prod logs as "0.0MB").
+  const headerTotal = Number(res.headers.get('content-length')) || 0;
+  const urlPath = new URL(src, location.href).pathname;
+  const total = headerTotal || footageSizes[urlPath] || 0;
   let received = 0;
   const reader = res.body!.getReader();
   const chunks: Uint8Array[] = [];

@@ -20,6 +20,7 @@ import {
   currentTime,
   playing,
   videosReady,
+  loadProgress,
   rateIdx,
   layout,
   encoding,
@@ -97,7 +98,10 @@ const fadeState: Record<Side, FadeState> = {
 // `<video src=URL>` can only seek inside the linearly-buffered region —
 // any scrub past it gets clamped to 0. Holding the file in a blob makes
 // `seekable` cover the full duration; every seek is instant memory access.
-async function makeVideo(src: string): Promise<HTMLVideoElement> {
+async function makeVideo(
+  src: string,
+  onProgress?: (received: number, total: number) => void,
+): Promise<HTMLVideoElement> {
   const v = document.createElement('video');
   v.muted = true;
   v.playsInline = true;
@@ -121,6 +125,7 @@ async function makeVideo(src: string): Promise<HTMLVideoElement> {
     if (done) break;
     chunks.push(value);
     received += value.length;
+    onProgress?.(received, total);
     const now = performance.now();
     if (now - lastLog > 500) {
       const pct = total ? ((received / total) * 100).toFixed(1) : '?';
@@ -128,6 +133,7 @@ async function makeVideo(src: string): Promise<HTMLVideoElement> {
       lastLog = now;
     }
   }
+  onProgress?.(received, received);
   const blob = new Blob(chunks as BlobPart[], { type: 'video/mp4' });
   v.src = URL.createObjectURL(blob);
   console.log(`[video:${tag}] ready (${(blob.size / 1e6).toFixed(1)}MB)`);
@@ -141,10 +147,28 @@ async function bootManifest() {
     console.warn('[frontend] manifest failed; sim-only fallback:', err);
     return;
   }
+  const bytes = {
+    boston: { received: 0, total: 0 },
+    santiago: { received: 0, total: 0 },
+  };
+  const updateProgress = () => {
+    const totalBoth = bytes.boston.total + bytes.santiago.total;
+    const receivedBoth = bytes.boston.received + bytes.santiago.received;
+    loadProgress.value = totalBoth > 0 ? Math.min(1, receivedBoth / totalBoth) : 0;
+  };
   [bostonVideo, santiagoVideo] = await Promise.all([
-    makeVideo(manifest.boston.videoUrl),
-    makeVideo(manifest.santiago.videoUrl),
+    makeVideo(manifest.boston.videoUrl, (r, t) => {
+      bytes.boston.received = r;
+      bytes.boston.total = t;
+      updateProgress();
+    }),
+    makeVideo(manifest.santiago.videoUrl, (r, t) => {
+      bytes.santiago.received = r;
+      bytes.santiago.total = t;
+      updateProgress();
+    }),
   ]);
+  loadProgress.value = 1;
 
   const onceReady = (v: HTMLVideoElement) =>
     new Promise<void>((resolve) => {

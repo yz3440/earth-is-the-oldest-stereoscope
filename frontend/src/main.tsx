@@ -98,7 +98,15 @@ function makeVideo(src: string): HTMLVideoElement {
   v.muted = true;
   v.playsInline = true;
   v.preload = 'auto';
-  v.crossOrigin = 'anonymous';
+  const tag = src.split('/').slice(-2).join('/');
+  const state = () =>
+    `readyState=${v.readyState} networkState=${v.networkState} currentTime=${v.currentTime.toFixed(2)}`;
+  v.addEventListener('error', () => {
+    const e = v.error;
+    console.warn(`[video:${tag}] error code=${e?.code} msg=${e?.message} ${state()}`);
+  });
+  v.addEventListener('stalled', () => console.warn(`[video:${tag}] stalled ${state()}`));
+  v.addEventListener('emptied', () => console.warn(`[video:${tag}] emptied ${state()}`));
   return v;
 }
 

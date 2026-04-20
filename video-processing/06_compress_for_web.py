@@ -2,10 +2,12 @@
 """
 Compress a moon video for web playback.
 
-H.264 / yuv420p / +faststart so it streams in any browser. CRF 30 with
-the slow preset — for a stabilized moon on a black sky this gives
-~7-8x reduction over the source bitrate while staying visually
-indistinguishable.
+AV1 (SVT-AV1) / yuv420p10le / +faststart. Played by all modern browsers
+(Chrome, Firefox, Edge, Safari 17+). For a stabilized moon on a black
+sky the content is extremely low-entropy, so we lean hard on CRF:
+default 45 gives a very small file while staying visually clean.
+
+CRF is a quality knob (0–63 for AV1). Higher = smaller file.
 
 Usage:
     uv run python compress_for_web.py <input.mp4> [-o out.mp4] [--crf N]
@@ -21,14 +23,14 @@ from pathlib import Path
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="H.264 compress a video for web playback.")
+    parser = argparse.ArgumentParser(description="AV1 compress a video for web playback.")
     parser.add_argument("video", help="Input video")
     parser.add_argument("-o", "--output", default=None,
                         help="Output path (default: <video>_web.mp4)")
-    parser.add_argument("--crf", type=int, default=30,
-                        help="x264 CRF, lower = higher quality (default: 30)")
-    parser.add_argument("--preset", default="slow",
-                        help="x264 preset (default: slow)")
+    parser.add_argument("--crf", type=int, default=45,
+                        help="SVT-AV1 CRF 0–63, higher = smaller file (default: 45)")
+    parser.add_argument("--preset", type=int, default=4,
+                        help="SVT-AV1 preset 0–13, lower = slower/smaller (default: 4)")
     args = parser.parse_args()
 
     if shutil.which("ffmpeg") is None:
@@ -44,8 +46,9 @@ def main() -> None:
 
     cmd = [
         "ffmpeg", "-y", "-i", str(src),
-        "-c:v", "libx264", "-preset", args.preset, "-crf", str(args.crf),
-        "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an",
+        "-c:v", "libsvtav1", "-preset", str(args.preset), "-crf", str(args.crf),
+        "-svtav1-params", "tune=0",
+        "-pix_fmt", "yuv420p10le", "-movflags", "+faststart", "-an",
         str(out),
     ]
     print(" ".join(cmd))

@@ -223,17 +223,10 @@ export class StereoSync {
     const target = frameIdx / t.videoFps;
     const desiredRate = this.simRate / (secPerFrame * t.videoFps);
     const inRange = target >= 0 && target < t.duration;
-    const trace = (why: string, to: number) => {
-      const tag = t.el.src.split('/').slice(-2).join('/');
-      console.warn(
-        `[seek:${tag}] ${why} virtualUTC=${this.virtualUTC.toFixed(0)} startUTC=${t.startUTC.toFixed(0)} realSec=${realSec.toFixed(2)} target=${to.toFixed(3)} duration=${t.duration.toFixed(2)} simRate=${this.simRate}`,
-      );
-    };
     if (!inRange) {
       if (!t.el.paused) t.el.pause();
       const clamped = target < 0 ? 0 : Math.max(0, t.duration - 1 / 30);
       if (Math.abs(t.el.currentTime - clamped) > 0.05 && !t.el.seeking) {
-        trace('out-of-range', clamped);
         t.el.currentTime = clamped;
       }
       return;
@@ -249,7 +242,6 @@ export class StereoSync {
     const pauseAndSeek = this.isPlaying && desiredRate < MIN_PLAYBACK_RATE;
 
     if (forceSeek) {
-      trace('forceSeek', target);
       t.el.currentTime = target;
       if (pauseAndSeek) {
         if (!t.el.paused) t.el.pause();
@@ -270,7 +262,6 @@ export class StereoSync {
       // re-seek every tick and trigger a flash storm.
       const targetInt = Math.floor(frameIdx) / t.videoFps;
       if (Math.abs(t.el.currentTime - targetInt) > 0.5 / t.videoFps) {
-        trace('pauseAndSeek', targetInt);
         t.el.currentTime = targetInt;
       }
       return;
@@ -280,14 +271,12 @@ export class StereoSync {
       t.el.playbackRate = clampPlaybackRate(desiredRate);
       if (t.el.paused) {
         if (Math.abs(t.el.currentTime - target) > this.driftThreshold) {
-          trace('drift-paused', target);
           t.el.currentTime = target;
         }
         t.el.play().catch((err) => console.warn('[stereo-sync] play() failed:', err));
       } else {
         const drift = t.el.currentTime - target;
         if (Math.abs(drift) > this.driftThreshold) {
-          trace('drift', target);
           t.el.currentTime = target;
         }
       }

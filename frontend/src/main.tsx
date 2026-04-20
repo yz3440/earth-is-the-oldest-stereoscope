@@ -103,13 +103,11 @@ async function makeVideo(src: string): Promise<HTMLVideoElement> {
   v.playsInline = true;
   v.preload = 'auto';
   const tag = src.split('/').slice(-2).join('/');
-  const state = () =>
-    `readyState=${v.readyState} networkState=${v.networkState} currentTime=${v.currentTime.toFixed(2)}`;
   v.addEventListener('error', () => {
     const e = v.error;
-    console.warn(`[video:${tag}] error code=${e?.code} msg=${e?.message} ${state()}`);
+    console.warn(`[video:${tag}] error code=${e?.code} msg=${e?.message}`);
   });
-  v.addEventListener('stalled', () => console.warn(`[video:${tag}] stalled ${state()}`));
+  v.addEventListener('stalled', () => console.warn(`[video:${tag}] stalled`));
 
   const res = await fetch(src);
   if (!res.ok) throw new Error(`fetch ${src} failed: ${res.status}`);
@@ -126,13 +124,13 @@ async function makeVideo(src: string): Promise<HTMLVideoElement> {
     const now = performance.now();
     if (now - lastLog > 500) {
       const pct = total ? ((received / total) * 100).toFixed(1) : '?';
-      console.log(`[video:${tag}] downloading ${(received / 1e6).toFixed(1)}MB / ${(total / 1e6).toFixed(1)}MB (${pct}%)`);
+      console.log(`[video:${tag}] ${(received / 1e6).toFixed(1)}MB / ${(total / 1e6).toFixed(1)}MB (${pct}%)`);
       lastLog = now;
     }
   }
   const blob = new Blob(chunks as BlobPart[], { type: 'video/mp4' });
   v.src = URL.createObjectURL(blob);
-  console.log(`[video:${tag}] blob ready (${(blob.size / 1e6).toFixed(1)}MB)`);
+  console.log(`[video:${tag}] ready (${(blob.size / 1e6).toFixed(1)}MB)`);
   return v;
 }
 

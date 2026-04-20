@@ -1,5 +1,5 @@
 import { signal, computed } from '@preact/signals';
-import { SIM_START } from './astronomy';
+import { OVERLAP_START } from './astronomy';
 
 export type Layout = 'sbs-full' | 'sbs-half' | 'tb-full' | 'tb-half';
 export type Encoding =
@@ -15,7 +15,7 @@ export type View = 'stereo' | 'sim';
 export const RATE_STEPS = [1, 2, 5, 10, 30, 60, 120, 240, 480] as const;
 export const DEFAULT_RATE_INDEX = 4;
 
-export const currentTime = signal<number>(SIM_START.getTime());
+export const currentTime = signal<number>(OVERLAP_START.getTime());
 export const playing = signal<boolean>(false);
 export const videosReady = signal<boolean>(false);
 export const rateIdx = signal<number>(DEFAULT_RATE_INDEX);

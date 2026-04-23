@@ -3,7 +3,7 @@
 //   - horizontal: inside the desktop controls bar above BottomBar
 // Both share the same signals and input elements; only layout differs.
 
-import { layout, encoding, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes } from '../state';
+import { layout, encoding, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom } from '../state';
 import type { Layout, Encoding, SourceMode } from '../state';
 import { TooltipLabel } from './Tooltip';
 
@@ -12,10 +12,12 @@ type Orientation = 'vertical' | 'horizontal';
 const TOOLTIPS = {
   LAYOUT: 'How the two eye images are arranged on screen (side-by-side or top-bottom, full or half width).',
   ENCODING: 'How the stereo pair is combined for viewing: anaglyph (colored glasses), frame-sequential (shutter glasses), or none (raw).',
-  SOURCE: 'Pick captured video, 3D simulation, or auto (video when available, sim as fallback).',
+  SOURCE: 'Show the captured telescope video, or the 3D simulation instead.',
   CORRECTION: 'Rotate each eye image so the stereo baseline is horizontal (uses telescope orientation data).',
   'FLIP HEAD': 'Flip the view 180° and swap eyes — useful for lying on your back or upside-down headsets.',
   PARALLAX: 'Horizontal shift between eyes in pixels — adjusts perceived depth.',
+  'TOP TEXT': 'Show the city name, coordinates, and local time block at the top of each eye.',
+  'BOT TEXT': 'Show the weather, UTC time, and eclipse phase block at the bottom of each eye.',
   TELESCOPES: 'Show or hide the telescope grid overlay in the 3D scene.',
   FOCUS: 'Center the 3D camera on the full system, Earth, or the Moon.',
 } as const;
@@ -85,9 +87,8 @@ const ENCODING_OPTS: { v: Encoding; l: string }[] = [
   { v: 'frame-seq',          l: 'frame-seq (DLP)'   },
 ];
 const SOURCE_OPTS: { v: SourceMode; l: string }[] = [
-  { v: 'auto',       l: 'auto'       },
-  { v: 'video-only', l: 'video only' },
-  { v: 'sim-only',   l: 'sim only'   },
+  { v: 'video-only', l: 'VIDEO' },
+  { v: 'sim-only',   l: 'SIM'   },
 ];
 
 function LayoutSelect() {
@@ -112,14 +113,30 @@ function EncodingSelect() {
   );
 }
 
-function SourceSelect() {
+function SourceToggle() {
   return (
-    <select
-      value={sourceMode.value}
-      onChange={(e) => (sourceMode.value = (e.target as HTMLSelectElement).value as SourceMode)}
-    >
-      {SOURCE_OPTS.map((o) => (<option value={o.v}>{o.l}</option>))}
-    </select>
+    <div class="flex" style={{ border: '1px solid var(--line)' }}>
+      {SOURCE_OPTS.map((o) => {
+        const active = sourceMode.value === o.v;
+        return (
+          <button
+            type='button'
+            onClick={() => (sourceMode.value = o.v)}
+            style={{
+              padding: '3px 10px',
+              fontSize: 10,
+              letterSpacing: '0.12em',
+              background: active ? 'var(--accent-fill)' : 'transparent',
+              color: active ? 'var(--text)' : 'var(--text-3)',
+              border: 'none',
+              transition: 'color 0.12s, background 0.12s',
+            }}
+          >
+            {o.l}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -186,7 +203,7 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
       <>
         <VRow label="LAYOUT"><LayoutSelect /></VRow>
         <VRow label="ENCODING"><EncodingSelect /></VRow>
-        <VRow label="SOURCE"><SourceSelect /></VRow>
+        <VRow label="SOURCE"><SourceToggle /></VRow>
         <VRow label="CORRECTION">
           <Switch checked={correction.value} onToggle={() => (correction.value = !correction.value)} />
         </VRow>
@@ -194,6 +211,12 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
           <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
         </VRow>
         <VRow label="PARALLAX"><ParallaxSlider width={100} /></VRow>
+        <VRow label="TOP TEXT">
+          <Switch checked={showEyeTop.value} onToggle={() => (showEyeTop.value = !showEyeTop.value)} />
+        </VRow>
+        <VRow label="BOT TEXT">
+          <Switch checked={showEyeBottom.value} onToggle={() => (showEyeBottom.value = !showEyeBottom.value)} />
+        </VRow>
       </>
     );
   }
@@ -202,7 +225,7 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
     <>
       <HCell label="LAYOUT"><LayoutSelect /></HCell>
       <HCell label="ENCODING"><EncodingSelect /></HCell>
-      <HCell label="SOURCE"><SourceSelect /></HCell>
+      <HCell label="SOURCE"><SourceToggle /></HCell>
       <HCell label="CORRECTION">
         <Switch checked={correction.value} onToggle={() => (correction.value = !correction.value)} />
       </HCell>
@@ -210,6 +233,12 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
         <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
       </HCell>
       <HCell label="PARALLAX"><ParallaxSlider width={120} /></HCell>
+      <HCell label="TOP TEXT">
+        <Switch checked={showEyeTop.value} onToggle={() => (showEyeTop.value = !showEyeTop.value)} />
+      </HCell>
+      <HCell label="BOT TEXT">
+        <Switch checked={showEyeBottom.value} onToggle={() => (showEyeBottom.value = !showEyeBottom.value)} />
+      </HCell>
     </>
   );
 }

@@ -129,7 +129,7 @@ export function WelcomeModal() {
                 letterSpacing: '0.08em',
               }}
             >
-              TAB · VIEW &nbsp;&nbsp; SPACE · PLAY &nbsp;&nbsp; H · FLIP
+              TAB · VIEW &nbsp;&nbsp; SPACE · PLAY &nbsp;&nbsp; H · FLIP &nbsp;&nbsp; F · FULL
             </span>
             <button
               type='button'

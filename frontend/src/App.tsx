@@ -8,7 +8,7 @@ import { WelcomeModal } from './components/WelcomeModal';
 import type { EyeData } from './components/EyeOverlay';
 import type { PlanetaryScene, EyeSide } from './scene';
 import type { Manifest } from './manifest';
-import { view, panelOpen, isNarrow } from './state';
+import { view, panelOpen, isNarrow, fullscreen } from './state';
 
 export interface AppProps {
   scene: PlanetaryScene | null;
@@ -49,11 +49,17 @@ export function App({ scene, manifest, boston, santiago, videos, getAngleRad, ge
         <TelescopeGrid scene={scene} videos={videos} getAngleRad={getAngleRad} getCovers={getCovers} />
       )}
 
-      {/* Progress bar + bottom bar (bottom bar hosts the controls popover) */}
-      <div class="absolute left-0 right-0" style={{ bottom: progressBottom, zIndex: 20, background: 'rgba(0,0,0,0.85)', padding: '0 14px' }}>
-        <ProgressTicks manifest={manifest} />
-      </div>
-      <BottomBar />
+      {/* Progress bar + bottom bar (bottom bar hosts the controls popover).
+          Hidden in fullscreen for an unobstructed viewing surface — exit
+          fullscreen with Esc or `f` to bring them back. */}
+      {!fullscreen.value && (
+        <>
+          <div class="absolute left-0 right-0" style={{ bottom: progressBottom, zIndex: 20, background: 'rgba(0,0,0,0.85)', padding: '0 14px' }}>
+            <ProgressTicks manifest={manifest} />
+          </div>
+          <BottomBar />
+        </>
+      )}
 
       {/* Welcome modal — shown on first visit, re-openable via state. */}
       <WelcomeModal />

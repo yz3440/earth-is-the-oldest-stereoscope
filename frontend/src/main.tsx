@@ -23,6 +23,7 @@ import {
   videosReady,
   loadProgress,
   rateIdx,
+  toggleFullscreen,
   layout,
   encoding,
   sourceMode,
@@ -624,8 +625,7 @@ document.addEventListener('keydown', (e) => {
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
 
   if (e.key === 'f') {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else document.documentElement.requestFullscreen();
+    toggleFullscreen();
     return;
   }
   if (e.key === 'Tab') {

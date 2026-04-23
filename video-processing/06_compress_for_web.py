@@ -2,15 +2,19 @@
 """
 Compress a moon video for web playback.
 
-AV1 (SVT-AV1) / yuv420p10le / +faststart. Played by all modern browsers
-(Chrome, Firefox, Edge, Safari 17+). For a stabilized moon on a black
-sky the content is extremely low-entropy, so we lean hard on CRF:
-default 45 gives a very small file while staying visually clean.
+HEVC (libx265, Main 10) / yuv420p10le / +faststart, tagged `hvc1` so
+Safari will play it. Played natively by all modern browsers: Safari
+(every Apple device for years), Chrome/Edge 107+, Firefox 126+.
 
-CRF is a quality knob (0–63 for AV1). Higher = smaller file.
+We previously used AV1 (SVT-AV1); Safari refused the files with
+MEDIA_ERR_SRC_NOT_SUPPORTED because it only hardware-decodes 8-bit AV1,
+not 10-bit. HEVC Main 10 is decoded natively on every Apple device.
+
+CRF is a quality knob (0–51 for x265). Higher = smaller file. Moon on
+black sky is extremely low-entropy so CRF 28 still gives a small file.
 
 Usage:
-    uv run python compress_for_web.py <input.mp4> [-o out.mp4] [--crf N]
+    uv run python 06_compress_for_web.py <input.mp4> [-o out.mp4] [--crf N]
 """
 
 from __future__ import annotations
@@ -23,14 +27,14 @@ from pathlib import Path
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="AV1 compress a video for web playback.")
+    parser = argparse.ArgumentParser(description="HEVC compress a video for web playback.")
     parser.add_argument("video", help="Input video")
     parser.add_argument("-o", "--output", default=None,
                         help="Output path (default: <video>_web.mp4)")
-    parser.add_argument("--crf", type=int, default=45,
-                        help="SVT-AV1 CRF 0–63, higher = smaller file (default: 45)")
-    parser.add_argument("--preset", type=int, default=4,
-                        help="SVT-AV1 preset 0–13, lower = slower/smaller (default: 4)")
+    parser.add_argument("--crf", type=int, default=28,
+                        help="x265 CRF 0–51, higher = smaller file (default: 28)")
+    parser.add_argument("--preset", default="medium",
+                        help="x265 preset: ultrafast…placebo (default: medium)")
     args = parser.parse_args()
 
     if shutil.which("ffmpeg") is None:
@@ -46,8 +50,8 @@ def main() -> None:
 
     cmd = [
         "ffmpeg", "-y", "-i", str(src),
-        "-c:v", "libsvtav1", "-preset", str(args.preset), "-crf", str(args.crf),
-        "-svtav1-params", "tune=0",
+        "-c:v", "libx265", "-preset", args.preset, "-crf", str(args.crf),
+        "-tag:v", "hvc1",
         "-pix_fmt", "yuv420p10le", "-movflags", "+faststart", "-an",
         str(out),
     ]

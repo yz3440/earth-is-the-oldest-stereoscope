@@ -9,7 +9,7 @@ export type Encoding =
   | 'anaglyph-gm'
   | 'anaglyph-amber'
   | 'frame-seq';
-export type SourceMode = 'auto' | 'video-only' | 'sim-only';
+export type SourceMode = 'video-only' | 'sim-only';
 export type View = 'stereo' | 'sim';
 
 export const RATE_STEPS = [1, 2, 5, 10, 30, 60, 120, 240, 480] as const;
@@ -26,7 +26,7 @@ export const rateIdx = signal<number>(DEFAULT_RATE_INDEX);
 
 export const layout = signal<Layout>('sbs-half');
 export const encoding = signal<Encoding>('none');
-export const sourceMode = signal<SourceMode>('auto');
+export const sourceMode = signal<SourceMode>('video-only');
 export const correction = signal<boolean>(true);
 // Head-flip: rotate the full presentation by 180° and swap L/R eye
 // assignment. The shown image ends up upside-down with correct stereo
@@ -37,6 +37,11 @@ export const parallaxPx = signal<number>(0);
 export const view = signal<View>('stereo');
 export const panelOpen = signal<boolean>(false);
 export const showTelescopes = signal<boolean>(true);
+// Per-eye overlay text toggles (stereo view). `showEyeTop` = city name +
+// coords + local time block; `showEyeBottom` = weather + UTC/video time +
+// eclipse phase block.
+export const showEyeTop = signal<boolean>(true);
+export const showEyeBottom = signal<boolean>(true);
 
 // Welcome modal — shown on every load.
 export const welcomeOpen = signal<boolean>(true);
@@ -70,3 +75,20 @@ if (typeof window !== 'undefined') {
 }
 export const isNarrow  = computed(() => viewportWidth.value < 640);
 export const isCompact = computed(() => viewportWidth.value < 960);
+
+// Fullscreen state, synced to the browser's own flag. The user can leave
+// fullscreen via Escape, OS gestures, or the browser UI, so we can't treat
+// our toggle calls as authoritative — listen to `fullscreenchange` instead.
+export const fullscreen = signal<boolean>(
+  typeof document !== 'undefined' && !!document.fullscreenElement,
+);
+if (typeof document !== 'undefined') {
+  document.addEventListener('fullscreenchange', () => {
+    fullscreen.value = !!document.fullscreenElement;
+  });
+}
+export function toggleFullscreen() {
+  if (typeof document === 'undefined') return;
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen();
+}

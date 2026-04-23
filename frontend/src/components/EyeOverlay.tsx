@@ -7,7 +7,7 @@
 // left eye) gets the top quarter; bottom eye gets the bottom quarter.
 
 import { computed } from '@preact/signals';
-import { layout, isNarrow, isCompact, flipHead } from '../state';
+import { layout, isNarrow, isCompact, flipHead, showEyeTop, showEyeBottom } from '../state';
 import type { EclipseData } from '../astronomy';
 import type { Weather } from '../weather';
 
@@ -84,41 +84,45 @@ function Eye({ data, which }: { data: EyeData; which: 'top' | 'bottom' | 'left' 
     >
       <div class="flex flex-col h-full justify-between">
         {/* Top block: city, coords, time, date, tz */}
-        <div>
-          <div style={{ fontWeight: 700, fontSize: hFont, letterSpacing: '0.08em', lineHeight: 1 }}>
-            {data.city.toUpperCase()}
+        {showEyeTop.value ? (
+          <div>
+            <div style={{ fontWeight: 700, fontSize: hFont, letterSpacing: '0.08em', lineHeight: 1 }}>
+              {data.city.toUpperCase()}
+            </div>
+            <div style={{ fontSize: bodyFont, opacity: 0.6, marginTop: 2 }}>
+              {data.region}
+            </div>
+            <div style={{ fontSize: bodyFont, opacity: 0.75, marginTop: 1 }}>
+              {HEMI_LAT(data.lat)}  {HEMI_LON(data.lon)}
+            </div>
+            <div style={{ fontWeight: 700, fontSize: hFont, letterSpacing: '0.04em', marginTop: narrow ? 8 : 14 }}>
+              {data.localTime}
+            </div>
+            <div style={{ fontSize: bodyFont, opacity: 0.75 }}>{data.localDate}</div>
+            <div style={{ fontSize: bodyFont, opacity: 0.75 }}>{data.tzAbbrev}</div>
           </div>
-          <div style={{ fontSize: bodyFont, opacity: 0.6, marginTop: 2 }}>
-            {data.region}
-          </div>
-          <div style={{ fontSize: bodyFont, opacity: 0.75, marginTop: 1 }}>
-            {HEMI_LAT(data.lat)}  {HEMI_LON(data.lon)}
-          </div>
-          <div style={{ fontWeight: 700, fontSize: hFont, letterSpacing: '0.04em', marginTop: narrow ? 8 : 14 }}>
-            {data.localTime}
-          </div>
-          <div style={{ fontSize: bodyFont, opacity: 0.75 }}>{data.localDate}</div>
-          <div style={{ fontSize: bodyFont, opacity: 0.75 }}>{data.tzAbbrev}</div>
-        </div>
+        ) : <div />}
 
         {/* Bottom block: weather + UTC + phase */}
-        <div>
-          <div style={{ fontSize: bodyFont, opacity: 0.85, whiteSpace: 'pre' }}>{kv('TEMP', data.weather.temp)}</div>
-          <div style={{ fontSize: bodyFont, opacity: 0.85, whiteSpace: 'pre' }}>{kv('COND', data.weather.cond)}</div>
-          <div style={{ fontSize: bodyFont, opacity: 0.85, whiteSpace: 'pre' }}>{kv('HUM ', data.weather.humidity)}</div>
-          <div style={{ fontSize: bodyFont, opacity: 0.85, whiteSpace: 'pre' }}>{kv('WIND', data.weather.wind)}</div>
-          <div style={{ height: 8 }} />
-          <div style={{ fontSize: bodyFont, opacity: 0.85 }}>{data.utcTime}</div>
-          <div style={{ fontSize: bodyFont, opacity: 0.85 }}>{data.videoTime}</div>
-          {data.phase && (
-            <>
-              <div style={{ fontSize: bodyFont, opacity: 0.9, fontWeight: 700, letterSpacing: '0.08em', marginTop: 4 }}>
-                {data.phase}
-              </div>
-              <div style={{ fontSize: bodyFont, opacity: 0.8 }}>{data.eclipseBar}</div>
-            </>
-          )}
-        </div>
+        {showEyeBottom.value ? (
+          <div>
+            <div style={{ fontSize: bodyFont, opacity: 0.85, whiteSpace: 'pre' }}>{kv('TEMP', data.weather.temp)}</div>
+            <div style={{ fontSize: bodyFont, opacity: 0.85, whiteSpace: 'pre' }}>{kv('COND', data.weather.cond)}</div>
+            <div style={{ fontSize: bodyFont, opacity: 0.85, whiteSpace: 'pre' }}>{kv('HUM ', data.weather.humidity)}</div>
+            <div style={{ fontSize: bodyFont, opacity: 0.85, whiteSpace: 'pre' }}>{kv('WIND', data.weather.wind)}</div>
+            <div style={{ height: 8 }} />
+            <div style={{ fontSize: bodyFont, opacity: 0.85 }}>{data.utcTime}</div>
+            <div style={{ fontSize: bodyFont, opacity: 0.85 }}>{data.videoTime}</div>
+            {data.phase && (
+              <>
+                <div style={{ fontSize: bodyFont, opacity: 0.9, fontWeight: 700, letterSpacing: '0.08em', marginTop: 4 }}>
+                  {data.phase}
+                </div>
+                <div style={{ fontSize: bodyFont, opacity: 0.8 }}>{data.eclipseBar}</div>
+              </>
+            )}
+          </div>
+        ) : <div />}
       </div>
     </div>
   );

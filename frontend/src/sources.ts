@@ -1,5 +1,4 @@
-// Per-eye source resolver. The `mode` arg overrides the default auto logic:
-//   auto       → video if ready + covers, else NO SIGNAL, else sim PIP
+// Per-eye source resolver.
 //   video-only → video if ready + covers, else NO SIGNAL
 //   sim-only   → sim PIP always
 // The `correction` flag selects raw vs corrected PIP canvas for sim fallback.
@@ -56,19 +55,10 @@ export function resolveEyeSource(side: EyeSide, ctx: SourcesContext): ResolvedSo
     return { kind: 'canvas', el: ctx.scene.getPIPCanvas(side, pipKind) };
   }
 
-  if (ctx.mode === 'video-only') {
-    if (video && !covers) return { kind: 'canvas', el: getNoSignalCanvas() };
-    if (video && video.videoWidth > 0 && (video.readyState >= 2 || video.seeking)) {
-      return { kind: 'video', el: video };
-    }
-    return { kind: 'canvas', el: getNoSignalCanvas() };
-  }
-
-  // auto
+  // video-only
   if (video && !covers) return { kind: 'canvas', el: getNoSignalCanvas() };
   if (video && video.videoWidth > 0 && (video.readyState >= 2 || video.seeking)) {
     return { kind: 'video', el: video };
   }
-  if (!ctx.scene) return { kind: 'canvas', el: getNoSignalCanvas() };
-  return { kind: 'canvas', el: ctx.scene.getPIPCanvas(side, pipKind) };
+  return { kind: 'canvas', el: getNoSignalCanvas() };
 }

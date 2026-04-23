@@ -10,6 +10,8 @@ import {
   DEFAULT_RATE_INDEX,
   isNarrow,
   isCompact,
+  fullscreen,
+  toggleFullscreen,
 } from '../state';
 import { SIM_START, SIM_END } from '../astronomy';
 import { ControlPanelBody, StereoControls, SimControls } from './ControlPanel';
@@ -147,7 +149,7 @@ export function BottomBar() {
         type='button'
         disabled={!videosReady.value}
         onClick={() => (playing.value = !playing.value)}
-        style={{ width: 32, height: 24, padding: 0, flex: 'none' }}
+        style={{ width: 40, height: 30, padding: 0, flex: 'none', fontSize: 18, lineHeight: 1 }}
         title='Play/Pause (space)'
       >
         {playing.value ? '❚❚' : '▶'}
@@ -228,6 +230,30 @@ export function BottomBar() {
         <Tab id='stereo' label={narrow ? 'ST' : 'STEREOSCOPY'} />
         <Tab id='sim' label={narrow ? 'SIM' : 'SIMULATION'} />
       </div>
+
+      {document.fullscreenEnabled && (
+        <button
+          type='button'
+          onClick={toggleFullscreen}
+          title={fullscreen.value ? 'Exit fullscreen (f)' : 'Fullscreen (f)'}
+          style={{
+            width: 28,
+            height: 24,
+            padding: 0,
+            flex: 'none',
+            fontSize: 14,
+            lineHeight: 1,
+            border: fullscreen.value
+              ? '1px solid var(--text)'
+              : '1px solid var(--line)',
+            background: fullscreen.value
+              ? 'var(--accent-fill)'
+              : 'transparent',
+          }}
+        >
+          ⛶
+        </button>
+      )}
 
       {narrow && <ControlsPopover anchorRef={anchorRef} />}
       {!narrow && panelOpen.value && <DesktopControlsBar />}

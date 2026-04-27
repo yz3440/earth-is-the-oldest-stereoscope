@@ -1,0 +1,10 @@
+[project]
+name = "contact-sheet"
+version = "0.1.0"
+description = "Stereo Moon contact sheet — grid of Boston/Santiago stereo pairs sampled every UTC minute."
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.0",
+    "opencv-python>=4.9",
+    "tqdm>=4.66",
+]

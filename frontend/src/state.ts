@@ -58,6 +58,12 @@ export const correction = persisted<boolean>('correction', true);
 export const flipHead = persisted<boolean>('flipHead', false);
 export const parallaxPx = persisted<number>('parallaxPx', 0);
 
+// Per-eye horizontal squeeze, as a percentage. 100 = no change. >100
+// compresses the source horizontally inside each eye region (useful when
+// the downstream display anamorphically stretches each eye, e.g. half-SBS
+// 3D TVs). <100 stretches it. Range 50–200 → factor 0.5×–2×.
+export const squeezePct = persisted<number>('squeezePct', 100);
+
 // Loop the stereo videos within the Boston/Santiago overlap window. When
 // true and the stereo view is active, playback wraps back to the start of
 // the overlap once it crosses the end — so the user can sit on the

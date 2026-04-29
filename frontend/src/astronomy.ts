@@ -84,8 +84,8 @@ export function vecNormalize(v: Vec3): Vec3 {
 
 // --- Constants ---
 
-const AU_TO_KM = 149597870.7;
-const EARTH_RADIUS_KM = 6371.0;
+export const AU_TO_KM = 149597870.7;
+export const EARTH_RADIUS_KM = 6371.0;
 const MOON_RADIUS_KM = 1737.4;
 const SUN_RADIUS_KM = 696000.0;
 export const AU_TO_ER = AU_TO_KM / EARTH_RADIUS_KM; // ~23481

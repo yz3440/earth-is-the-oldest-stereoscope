@@ -20,7 +20,12 @@
     margin: 0;
     padding: 0;
     width: 100vw;
-    height: 100vh;
+    /* dvh, not vh: mobile browsers report `100vh` as the *largest* viewport
+       (chrome collapsed). With chrome visible — the default on page load —
+       `100vh` exceeds the visible area and the BottomBar (bottom:0) gets
+       pushed off-screen. dvh tracks the visible viewport like
+       window.innerHeight, which the JS resize handlers already use. */
+    height: 100dvh;
     overflow: hidden;
     background: var(--bg);
     color: var(--text);
@@ -79,7 +84,7 @@
   top: 0;
   left: 0;
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   image-rendering: pixelated;
 }
 #sim-canvas-host canvas {

@@ -40,6 +40,7 @@ import {
   introductionStereo,
   introductionCardHeight,
   loopOverlap,
+  squeezePct,
   viewportWidth,
   viewportHeight,
   RATE_STEPS,
@@ -916,6 +917,7 @@ function animate(realTime: number) {
           layout: layout.value,
           encoding: encoding.value,
           parallaxPx: parallaxPx.value,
+          squeeze: squeezePct.value / 100,
           swap: flipHead.value,
           frameParity,
         });
@@ -941,6 +943,7 @@ function animate(realTime: number) {
       layout: layout.value,
       encoding: encoding.value,
       parallaxPx: parallaxPx.value,
+      squeeze: squeezePct.value / 100,
       swap: flipHead.value,
       frameParity,
     });
@@ -993,6 +996,7 @@ function animate(realTime: number) {
     layout: layout.value,
     encoding: encoding.value,
     parallaxPx: parallaxPx.value,
+    squeeze: squeezePct.value / 100,
     swap: false,
     frameParity,
   });

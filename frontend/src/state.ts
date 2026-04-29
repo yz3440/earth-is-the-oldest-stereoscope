@@ -1,4 +1,4 @@
-import { signal, computed } from '@preact/signals';
+import { signal, computed, effect, type Signal } from '@preact/signals';
 import { OVERLAP_START } from './astronomy';
 
 export type Layout = 'sbs-full' | 'sbs-half' | 'tb-full' | 'tb-half';
@@ -10,7 +10,31 @@ export type Encoding =
   | 'anaglyph-amber'
   | 'frame-seq';
 export type SourceMode = 'video-only' | 'sim-only';
-export type View = 'stereo' | 'sim';
+export type View = 'stereo' | 'sim' | 'introduction';
+
+// Wrap `signal` with localStorage persistence so the user's control choices
+// survive reloads. Reads the stored value at construction; writes any
+// mutation back. Failures (private mode, quota, malformed JSON) fall through
+// to the in-memory default — persistence is best-effort, not load-bearing.
+function persisted<T>(key: string, initial: T): Signal<T> {
+  const storageKey = `stereo-moon:${key}`;
+  let value = initial;
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw !== null) value = JSON.parse(raw) as T;
+    } catch {}
+  }
+  const sig = signal<T>(value);
+  if (typeof localStorage !== 'undefined') {
+    effect(() => {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(sig.value));
+      } catch {}
+    });
+  }
+  return sig;
+}
 
 export const RATE_STEPS = [1, 2, 5, 10, 30, 60, 120, 240, 480] as const;
 export const DEFAULT_RATE_INDEX = 4;
@@ -22,34 +46,64 @@ export const videosReady = signal<boolean>(false);
 // progress bar in the welcome modal. 1 means bytes are fully fetched; videos
 // may still be decoding — `videosReady` is the definitive "can play" flag.
 export const loadProgress = signal<number>(0);
-export const rateIdx = signal<number>(DEFAULT_RATE_INDEX);
+export const rateIdx = persisted<number>('rateIdx', DEFAULT_RATE_INDEX);
 
-export const layout = signal<Layout>('sbs-half');
-export const encoding = signal<Encoding>('none');
-export const sourceMode = signal<SourceMode>('video-only');
-export const correction = signal<boolean>(true);
+export const layout = persisted<Layout>('layout', 'sbs-half');
+export const encoding = persisted<Encoding>('encoding', 'none');
+export const sourceMode = persisted<SourceMode>('sourceMode', 'video-only');
+export const correction = persisted<boolean>('correction', true);
 // Head-flip: rotate the full presentation by 180° and swap L/R eye
 // assignment. The shown image ends up upside-down with correct stereo
 // depth. In the sim view this flips the 3D canvas too.
-export const flipHead = signal<boolean>(false);
-export const parallaxPx = signal<number>(0);
+export const flipHead = persisted<boolean>('flipHead', false);
+export const parallaxPx = persisted<number>('parallaxPx', 0);
 
-export const view = signal<View>('stereo');
+// Stereo render of the orbital diagram (sim view). When true, the sim view
+// renders the scene from two slightly offset cameras and pipes both through
+// the StereoRenderer so the geometry is visible in actual 3D depth.
+export const simStereo = persisted<boolean>('simStereo', false);
+
+// Stereo toggle for the introduction view. Default false so the text card
+// is always readable at first; the user opts in to a stereo render of the
+// orbital diagram (and a duplicated card per eye region for sbs/tb
+// layouts) by flipping this. While the introduction is active, simStereo
+// is kept in sync with this signal.
+export const introductionStereo = persisted<boolean>('introductionStereo', false);
+
+// Measured height (CSS px) of the introduction card. Written by the
+// IntroductionView via a ResizeObserver, read by the camera-keyframe
+// pipeline to lift bodies above the card so the card never occludes
+// Earth/Moon.
+export const introductionCardHeight = signal<number>(0);
+
+// Default first-time landing view is the introduction — a guided tour that
+// explains the parallax geometry with a stereo render of the orbital
+// diagram. Returning users land on whichever view they last selected.
+export const view = persisted<View>('view', 'introduction');
 export const panelOpen = signal<boolean>(false);
-export const showTelescopes = signal<boolean>(true);
+export const showTelescopes = persisted<boolean>('showTelescopes', true);
 // Per-eye overlay text toggles (stereo view). `showEyeTop` = city name +
 // coords + local time block; `showEyeBottom` = weather + UTC/video time +
 // eclipse phase block.
-export const showEyeTop = signal<boolean>(true);
-export const showEyeBottom = signal<boolean>(true);
+export const showEyeTop = persisted<boolean>('showEyeTop', true);
+export const showEyeBottom = persisted<boolean>('showEyeBottom', true);
 
-// Welcome modal — shown on every load.
-export const welcomeOpen = signal<boolean>(true);
-export function dismissWelcome() {
-  welcomeOpen.value = false;
+// Introduction view — a multi-page guided tour explaining the parallax
+// geometry, with the stereo orbital diagram rendered behind the text card.
+// Tied to the 'introduction' value of `view`; the page index is reset to 0
+// each time the user enters the view.
+export const INTRODUCTION_PAGE_COUNT = 4;
+export const introductionPage = signal<number>(0);
+export function nextIntroductionPage() {
+  if (introductionPage.value < INTRODUCTION_PAGE_COUNT - 1) {
+    introductionPage.value += 1;
+  } else {
+    // ENTER on the last page leaves the introduction for the stereo (videos) view.
+    view.value = 'stereo';
+  }
 }
-export function openWelcome() {
-  welcomeOpen.value = true;
+export function prevIntroductionPage() {
+  if (introductionPage.value > 0) introductionPage.value -= 1;
 }
 
 // True while the user is actively dragging the progress bar. Sources fall
@@ -68,9 +122,13 @@ export const simRate = () => RATE_STEPS[rateIdx.value];
 export const viewportWidth = signal<number>(
   typeof window === 'undefined' ? 1280 : window.innerWidth,
 );
+export const viewportHeight = signal<number>(
+  typeof window === 'undefined' ? 720 : window.innerHeight,
+);
 if (typeof window !== 'undefined') {
   window.addEventListener('resize', () => {
     viewportWidth.value = window.innerWidth;
+    viewportHeight.value = window.innerHeight;
   });
 }
 export const isNarrow  = computed(() => viewportWidth.value < 640);

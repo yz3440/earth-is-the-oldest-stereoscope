@@ -14,7 +14,7 @@ import {
   toggleFullscreen,
 } from '../state';
 import { SIM_START, SIM_END } from '../astronomy';
-import { ControlPanelBody, StereoControls, SimControls } from './ControlPanel';
+import { ControlPanelBody, StereoControls, SimControls, IntroductionControls } from './ControlPanel';
 
 const fmtUTC = (d: Date) => d.toISOString().slice(11, 16) + ' UTC';
 
@@ -26,7 +26,7 @@ function setRate(i: number) {
   rateIdx.value = clamp(i, 0, RATE_STEPS.length - 1);
 }
 
-function Tab({ id, label }: { id: 'stereo' | 'sim'; label: string }) {
+function Tab({ id, label }: { id: 'stereo' | 'sim' | 'introduction'; label: string }) {
   const active = view.value === id;
   // Bare-text nav, not a boxed control: strip border/background so the tab
   // reads as inline navigation alongside the heavier play / rate / CONTROLS
@@ -118,6 +118,7 @@ function DesktopControlsBar() {
     >
       <StereoControls orientation="horizontal" />
       <SimControls orientation="horizontal" />
+      <IntroductionControls orientation="horizontal" />
     </div>
   );
 }
@@ -227,6 +228,7 @@ export function BottomBar() {
         class='flex items-center'
         style={{ gap: narrow ? 4 : 8, flex: 'none' }}
       >
+        <Tab id='introduction' label={narrow ? 'INT' : 'INTRODUCTION'} />
         <Tab id='stereo' label={narrow ? 'ST' : 'STEREOSCOPY'} />
         <Tab id='sim' label={narrow ? 'SIM' : 'SIMULATION'} />
       </div>

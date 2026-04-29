@@ -58,6 +58,12 @@ export const correction = persisted<boolean>('correction', true);
 export const flipHead = persisted<boolean>('flipHead', false);
 export const parallaxPx = persisted<number>('parallaxPx', 0);
 
+// Loop the stereo videos within the Boston/Santiago overlap window. When
+// true and the stereo view is active, playback wraps back to the start of
+// the overlap once it crosses the end — so the user can sit on the
+// double-camera segment without having to scrub manually.
+export const loopOverlap = persisted<boolean>('loopOverlap', false);
+
 // Stereo render of the orbital diagram (sim view). When true, the sim view
 // renders the scene from two slightly offset cameras and pipes both through
 // the StereoRenderer so the geometry is visible in actual 3D depth.

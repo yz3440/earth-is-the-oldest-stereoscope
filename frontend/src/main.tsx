@@ -39,6 +39,7 @@ import {
   introductionPage,
   introductionStereo,
   introductionCardHeight,
+  loopOverlap,
   viewportWidth,
   viewportHeight,
   RATE_STEPS,
@@ -576,6 +577,24 @@ effect(() => {
   sync.setSimRate(RATE_STEPS[rateIdx.value]);
 });
 
+// --- LOOP toggle: snap into the overlap window on activation ---
+// When the user enables LOOP from outside the Boston/Santiago overlap,
+// jump the playhead to the overlap start so the next frame they see is the
+// segment they asked to loop. Without this, toggling LOOP on while parked
+// at SIM_END would do nothing visible until they pressed play and the
+// wrap-around handler in the animation loop kicked in.
+effect(() => {
+  if (!loopOverlap.value) return;
+  if (!sync.hasTracks()) return;
+  const overlapStartMs = sync.overlapStartUTC() * 1000;
+  const overlapEndMs = sync.overlapEndUTC() * 1000;
+  if (overlapEndMs <= overlapStartMs) return;
+  const now = currentTime.peek();
+  if (now < overlapStartMs || now >= overlapEndMs) {
+    currentTime.value = overlapStartMs;
+  }
+});
+
 // --- Introduction keyframes ---
 // While the introduction view is active, force stereo sim rendering on,
 // lock OrbitControls, and tween the camera to a per-page keyframe. On
@@ -839,9 +858,20 @@ function animate(realTime: number) {
     const dt = (realTime - lastRealTime) / 1000;
     const rate = RATE_STEPS[rateIdx.value];
     const t = currentTime.value + dt * rate * 1000;
-    // Stop at SIM_END instead of looping: pin time to the end and pause.
-    // User can seek back with the scrubber or arrow keys to resume.
-    if (t >= SIM_END.getTime()) {
+    // In stereo view with LOOP on, wrap playback inside the Boston/Santiago
+    // overlap window — the segment with both cameras live, where the
+    // stereoscopy is meaningful. Otherwise pin to SIM_END and pause.
+    const looping =
+      loopOverlap.value && view.value === 'stereo' && sync.hasTracks();
+    if (looping) {
+      const overlapStartMs = sync.overlapStartUTC() * 1000;
+      const overlapEndMs = sync.overlapEndUTC() * 1000;
+      if (overlapEndMs > overlapStartMs && t >= overlapEndMs) {
+        currentTime.value = overlapStartMs;
+      } else {
+        currentTime.value = t;
+      }
+    } else if (t >= SIM_END.getTime()) {
       currentTime.value = SIM_END.getTime();
       playing.value = false;
     } else {

@@ -3,7 +3,7 @@
 //   - horizontal: inside the desktop controls bar above BottomBar
 // Both share the same signals and input elements; only layout differs.
 
-import { layout, encoding, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom, simStereo, introductionStereo } from '../state';
+import { layout, encoding, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom, simStereo, introductionStereo, loopOverlap } from '../state';
 import type { Layout, Encoding, SourceMode } from '../state';
 import { TooltipLabel } from './Tooltip';
 
@@ -21,6 +21,7 @@ const TOOLTIPS = {
   TELESCOPES: 'Show or hide the telescope grid overlay in the 3D scene.',
   FOCUS: 'Center the 3D camera on the full system, Earth, or the Moon.',
   STEREO: 'Render the orbital diagram in stereo using the current layout and encoding — like wearing 3D glasses sized to Earth.',
+  LOOP: 'Loop playback between the start and end of the Boston/Santiago overlap window.',
 } as const;
 
 type LabelKey = keyof typeof TOOLTIPS;
@@ -217,6 +218,9 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
           <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
         </VRow>
         <VRow label="PARALLAX"><ParallaxSlider width={100} /></VRow>
+        <VRow label="LOOP">
+          <Switch checked={loopOverlap.value} onToggle={() => (loopOverlap.value = !loopOverlap.value)} />
+        </VRow>
         <VRow label="TOP TEXT">
           <Switch checked={showEyeTop.value} onToggle={() => (showEyeTop.value = !showEyeTop.value)} />
         </VRow>
@@ -239,6 +243,9 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
         <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
       </HCell>
       <HCell label="PARALLAX"><ParallaxSlider width={120} /></HCell>
+      <HCell label="LOOP">
+        <Switch checked={loopOverlap.value} onToggle={() => (loopOverlap.value = !loopOverlap.value)} />
+      </HCell>
       <HCell label="TOP TEXT">
         <Switch checked={showEyeTop.value} onToggle={() => (showEyeTop.value = !showEyeTop.value)} />
       </HCell>

@@ -61,7 +61,7 @@ function Eye({ data, which }: { data: EyeData; which: 'top' | 'bottom' | 'left' 
     : {
         left: '0',
         right: '0',
-        height: `${heightVh}vh`,
+        height: `${heightVh}dvh`,
         ...(which === 'top' ? { top: '0' } : { bottom: '0' }),
       };
   const align = which === 'right' ? 'right' : 'left';

@@ -40,6 +40,34 @@ export class PlanetaryScene {
   private santiagoRawCam: THREE.PerspectiveCamera;
   private santiagoCorrectedCam: THREE.PerspectiveCamera;
 
+  // Stereo render of the main scene: two cameras laterally offset from
+  // `this.camera`, each rendered to a render target whose pixels are copied
+  // into a 2D canvas for upload to StereoRenderer.
+  private mainLeftCam: THREE.PerspectiveCamera;
+  private mainRightCam: THREE.PerspectiveCamera;
+  private mainStereoCanvases: { left: HTMLCanvasElement; right: HTMLCanvasElement } | null = null;
+  private mainStereoCtxs: { left: CanvasRenderingContext2D; right: CanvasRenderingContext2D } | null = null;
+  private mainStereoImageData: { left: ImageData; right: ImageData } | null = null;
+  private mainStereoRT: { left: THREE.WebGLRenderTarget; right: THREE.WebGLRenderTarget } | null = null;
+  private mainStereoSize: { w: number; h: number } = { w: 0, h: 0 };
+  private mainStereoPixelBuffer: Uint8Array | null = null;
+
+  // Camera tween state. Drives a smooth interpolation of `this.camera.position`,
+  // `this.controls.target`, and `this.camera.up` between two keyframes;
+  // updated each render. The `up` interpolation lets keyframes roll the
+  // camera (e.g. to align Boston/Santiago with the viewer's eye axis on the
+  // introduction's parallax pages) and tween smoothly back to world up.
+  private cameraTween: {
+    fromPos: THREE.Vector3;
+    toPos: THREE.Vector3;
+    fromTarget: THREE.Vector3;
+    toTarget: THREE.Vector3;
+    fromUp: THREE.Vector3;
+    toUp: THREE.Vector3;
+    start: number;
+    duration: number;
+  } | null = null;
+
   private pipCanvases: Record<string, HTMLCanvasElement> = {};
   private pipCtxs: Record<string, CanvasRenderingContext2D> = {};
   private pipImageData: Record<string, ImageData> = {};
@@ -85,8 +113,11 @@ export class PlanetaryScene {
     this.earth = new THREE.Mesh(earthGeo, this.earthMat);
     this.scene.add(this.earth);
 
+    // Parent the wireframe and rotation-axis to `this.earth` so they
+    // inherit Earth's scale (introduction view scales Earth up for
+    // diagrammatic visibility) and rotation (axis stays on the pole).
     const wireGeo = new THREE.SphereGeometry(1.002, 36, 18);
-    this.scene.add(new THREE.Mesh(wireGeo, new THREE.MeshBasicMaterial({
+    this.earth.add(new THREE.Mesh(wireGeo, new THREE.MeshBasicMaterial({
       color: 0x666666, wireframe: true, transparent: true, opacity: 0.12,
     })));
 
@@ -94,7 +125,7 @@ export class PlanetaryScene {
       new THREE.Vector3(0, -1.5, 0),
       new THREE.Vector3(0, 1.5, 0),
     ]);
-    this.scene.add(new THREE.Line(axisGeo, new THREE.LineBasicMaterial({
+    this.earth.add(new THREE.Line(axisGeo, new THREE.LineBasicMaterial({
       color: 0x888888, transparent: true, opacity: 0.3,
     })));
 
@@ -194,6 +225,11 @@ export class PlanetaryScene {
     this.bostonCorrectedCam = new THREE.PerspectiveCamera(TEL_FOV, 1, 1, 100000);
     this.santiagoRawCam = new THREE.PerspectiveCamera(TEL_FOV, 1, 1, 100000);
     this.santiagoCorrectedCam = new THREE.PerspectiveCamera(TEL_FOV, 1, 1, 100000);
+
+    // Main stereo cameras: settings are copied from `this.camera` every frame
+    // before rendering, so the constructor values are placeholders.
+    this.mainLeftCam = new THREE.PerspectiveCamera(45, 1, 0.1, 100000);
+    this.mainRightCam = new THREE.PerspectiveCamera(45, 1, 0.1, 100000);
   }
 
   getDomElement(): HTMLCanvasElement {
@@ -209,10 +245,72 @@ export class PlanetaryScene {
     this.controls.maxDistance = 50000;
   }
 
+  // Move OrbitControls to listen on a different DOM element. Used when the
+  // sim view toggles between the regular Three.js canvas and the stereo
+  // composite canvas — pointer events need to land on whichever is visible.
+  swapControlsTarget(target: HTMLElement) {
+    if (this.controls && this.controls.domElement === target) return;
+    const enabled = this.controls?.enabled ?? true;
+    const cameraTarget = this.controls?.target.clone() ?? new THREE.Vector3();
+    if (this.controls) {
+      this.controls.dispose();
+      this.controls = null;
+    }
+    this.attachControls(target);
+    const c = this.controls as OrbitControls | null;
+    if (c) {
+      c.enabled = enabled;
+      c.target.copy(cameraTarget);
+    }
+  }
+
+  // Externally settable lock for OrbitControls input. Used by the welcome
+  // flow to keep the keyframed camera under tween control.
+  setControlsEnabled(enabled: boolean) {
+    if (this.controls) this.controls.enabled = enabled;
+  }
+
   resize(w: number, h: number) {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.mainLeftCam.aspect = w / h;
+    this.mainLeftCam.updateProjectionMatrix();
+    this.mainRightCam.aspect = w / h;
+    this.mainRightCam.updateProjectionMatrix();
+    this.resizeMainStereo(w, h);
+  }
+
+  private resizeMainStereo(w: number, h: number) {
+    if (w <= 0 || h <= 0) return;
+    if (this.mainStereoSize.w === w && this.mainStereoSize.h === h && this.mainStereoRT) return;
+    this.mainStereoSize = { w, h };
+    if (this.mainStereoRT) {
+      this.mainStereoRT.left.dispose();
+      this.mainStereoRT.right.dispose();
+    }
+    this.mainStereoRT = {
+      left: new THREE.WebGLRenderTarget(w, h, { depthBuffer: true, stencilBuffer: false }),
+      right: new THREE.WebGLRenderTarget(w, h, { depthBuffer: true, stencilBuffer: false }),
+    };
+    if (!this.mainStereoCanvases) {
+      const lc = document.createElement('canvas');
+      const rc = document.createElement('canvas');
+      this.mainStereoCanvases = { left: lc, right: rc };
+      this.mainStereoCtxs = {
+        left: lc.getContext('2d')!,
+        right: rc.getContext('2d')!,
+      };
+    }
+    this.mainStereoCanvases.left.width = w;
+    this.mainStereoCanvases.left.height = h;
+    this.mainStereoCanvases.right.width = w;
+    this.mainStereoCanvases.right.height = h;
+    this.mainStereoImageData = {
+      left: this.mainStereoCtxs!.left.createImageData(w, h),
+      right: this.mainStereoCtxs!.right.createImageData(w, h),
+    };
+    this.mainStereoPixelBuffer = new Uint8Array(w * h * 4);
   }
 
   applyFrameState(frame: FrameData) {
@@ -274,6 +372,7 @@ export class PlanetaryScene {
   }
 
   renderMain() {
+    this.updateCameraTween();
     if (this.controls) this.controls.update();
     const el = this.renderer.domElement;
     const w = el.clientWidth || el.width;
@@ -284,6 +383,139 @@ export class PlanetaryScene {
     this.renderer.render(this.scene, this.camera);
     // Telescope views are displayed via the DOM TelescopeGrid component
     // (scene.getPIPCanvas() feeds it) — no viewport inset overlay here.
+  }
+
+  // Render the main scene from two cameras laterally offset from
+  // `this.camera` by `±ipd/2` along its world-space right vector. Both
+  // cameras converge on the OrbitControls target. The two render targets
+  // are blitted into 2D canvases reachable via `getMainStereoCanvas` so
+  // the StereoRenderer can upload them as eye textures.
+  renderMainStereo(ipd: number) {
+    this.updateCameraTween();
+    if (this.controls) this.controls.update();
+    const el = this.renderer.domElement;
+    const w = el.clientWidth || el.width;
+    const h = el.clientHeight || el.height;
+    if (w <= 0 || h <= 0) return;
+    this.resizeMainStereo(w, h);
+    if (!this.mainStereoRT || !this.mainStereoCanvases || !this.mainStereoCtxs || !this.mainStereoImageData || !this.mainStereoPixelBuffer) return;
+
+    const target = this.controls ? this.controls.target : new THREE.Vector3();
+
+    this.camera.updateMatrixWorld();
+    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
+    const half = ipd * 0.5;
+
+    const setupSide = (cam: THREE.PerspectiveCamera, sign: number) => {
+      cam.position.copy(this.camera.position).addScaledVector(right, sign * half);
+      cam.up.copy(this.camera.up);
+      cam.fov = this.camera.fov;
+      cam.aspect = w / h;
+      cam.near = this.camera.near;
+      cam.far = this.camera.far;
+      cam.updateProjectionMatrix();
+      cam.lookAt(target);
+    };
+    setupSide(this.mainLeftCam, -1);
+    setupSide(this.mainRightCam, +1);
+
+    const renderToCanvas = (
+      cam: THREE.PerspectiveCamera,
+      rt: THREE.WebGLRenderTarget,
+      canvas: HTMLCanvasElement,
+      ctx: CanvasRenderingContext2D,
+      img: ImageData,
+    ) => {
+      const prev = this.renderer.getRenderTarget();
+      this.renderer.setRenderTarget(rt);
+      this.renderer.setClearColor(0x000000, 1);
+      this.renderer.clear();
+      this.renderer.render(this.scene, cam);
+      this.renderer.setRenderTarget(prev);
+      this.renderer.setClearColor(0x000000);
+      const pixels = this.mainStereoPixelBuffer!;
+      this.renderer.readRenderTargetPixels(rt, 0, 0, w, h, pixels);
+      // WebGL gives us bottom-up rows; flip to top-down for the 2D canvas.
+      const rowBytes = w * 4;
+      for (let y = 0; y < h; y++) {
+        const src = (h - 1 - y) * rowBytes;
+        const dst = y * rowBytes;
+        img.data.set(pixels.subarray(src, src + rowBytes), dst);
+      }
+      ctx.putImageData(img, 0, 0);
+      void canvas;
+    };
+
+    renderToCanvas(this.mainLeftCam, this.mainStereoRT.left, this.mainStereoCanvases.left, this.mainStereoCtxs.left, this.mainStereoImageData.left);
+    renderToCanvas(this.mainRightCam, this.mainStereoRT.right, this.mainStereoCanvases.right, this.mainStereoCtxs.right, this.mainStereoImageData.right);
+  }
+
+  getMainStereoCanvas(side: 'left' | 'right'): HTMLCanvasElement | null {
+    return this.mainStereoCanvases ? this.mainStereoCanvases[side] : null;
+  }
+
+  // Animate `this.camera.position`, `this.controls.target`, and
+  // `this.camera.up` from their current state to the given keyframe over
+  // `durationMs`. The tween steps forward at the top of every render call;
+  // pass `durationMs = 0` to jump. `toUp` defaults to world Y so existing
+  // call sites keep their conventional orientation.
+  tweenCameraTo(
+    toPos: THREE.Vector3,
+    toTarget: THREE.Vector3,
+    durationMs = 900,
+    toUp: THREE.Vector3 = new THREE.Vector3(0, 1, 0),
+  ) {
+    if (!this.controls) return;
+    const upTarget = toUp.clone().normalize();
+    if (durationMs <= 0) {
+      this.camera.position.copy(toPos);
+      this.controls.target.copy(toTarget);
+      this.camera.up.copy(upTarget);
+      this.cameraTween = null;
+      return;
+    }
+    this.cameraTween = {
+      fromPos: this.camera.position.clone(),
+      toPos: toPos.clone(),
+      fromTarget: this.controls.target.clone(),
+      toTarget: toTarget.clone(),
+      fromUp: this.camera.up.clone(),
+      toUp: upTarget,
+      start: performance.now(),
+      duration: durationMs,
+    };
+  }
+
+  // Snap `this.camera.up` to a new vector and cancel any in-flight tween's
+  // up interpolation. Position and target are left untouched. Used when
+  // exiting the introduction so the free-look sim view always starts
+  // right-side-up regardless of where the introduction left the camera.
+  snapCameraUp(toUp: THREE.Vector3) {
+    const target = toUp.clone().normalize();
+    this.camera.up.copy(target);
+    if (this.cameraTween) {
+      this.cameraTween.fromUp.copy(target);
+      this.cameraTween.toUp.copy(target);
+    }
+  }
+
+  private updateCameraTween() {
+    if (!this.cameraTween || !this.controls) return;
+    const tw = this.cameraTween;
+    const t = (performance.now() - tw.start) / tw.duration;
+    if (t >= 1) {
+      this.camera.position.copy(tw.toPos);
+      this.controls.target.copy(tw.toTarget);
+      this.camera.up.copy(tw.toUp);
+      this.cameraTween = null;
+      return;
+    }
+    const e = 1 - Math.pow(1 - t, 3); // cubic ease-out
+    this.camera.position.lerpVectors(tw.fromPos, tw.toPos, e);
+    this.controls.target.lerpVectors(tw.fromTarget, tw.toTarget, e);
+    // Lerp + normalize is visually indistinguishable from slerp at the
+    // angles in play here (≤ 90°) and avoids a quaternion intermediate.
+    this.camera.up.lerpVectors(tw.fromUp, tw.toUp, e).normalize();
   }
 
   focusEarth() {
@@ -343,6 +575,46 @@ export class PlanetaryScene {
         this.pipImageData[k] = ctx.createImageData(this.pipCanvasSize, this.pipCanvasSize);
       }
     }
+  }
+
+  // Adaptive body scaling for the introduction view.
+  //
+  // Astronomy diagrams universally exaggerate body sizes vs. distances —
+  // an Earth/Moon at true scale is invisible against ~60 ER of space.
+  // When `active` is true we project each body onto the main camera,
+  // measure its on-screen radius, and scale the body mesh up just enough
+  // to hit `MIN_BODY_RADIUS_PX`. Bodies that are already comfortably big
+  // (e.g., Earth on the page-2 close-up) get scale 1 and aren't touched.
+  //
+  // The Earth wireframe and rotation-axis line are children of `this.earth`
+  // (see constructor), so they scale with it. When `active` is false,
+  // scales reset to 1 — sim/stereo views see physically accurate sizes.
+  updateBodyScales(active: boolean) {
+    if (!active) {
+      this.earth.scale.setScalar(1);
+      this.moon.scale.setScalar(1);
+      return;
+    }
+    const w = this.renderer.domElement.clientWidth || this.renderer.domElement.width;
+    if (w === 0) return;
+    this.camera.updateMatrixWorld();
+    const cameraRight = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
+    const MIN_BODY_RADIUS_PX = 36;
+
+    const calcScale = (worldPos: THREE.Vector3, baseRadius: number): number => {
+      const v = worldPos.clone().project(this.camera);
+      if (v.z > 1) return 1; // behind camera — don't scale
+      const edge = worldPos.clone().addScaledVector(cameraRight, baseRadius);
+      const ev = edge.project(this.camera);
+      const screenRadiusPx = Math.abs((ev.x - v.x) * 0.5) * w;
+      if (screenRadiusPx < 0.5) return 1;
+      return Math.max(1, MIN_BODY_RADIUS_PX / screenRadiusPx);
+    };
+
+    this.earth.scale.setScalar(calcScale(new THREE.Vector3(0, 0, 0), 1));
+    this.moon.scale.setScalar(
+      calcScale(this.moon.position, MOON_RADIUS_ER * 4),
+    );
   }
 
   getPIPCanvas(camera: EyeSide, kind: PIPKind = 'corrected'): HTMLCanvasElement {

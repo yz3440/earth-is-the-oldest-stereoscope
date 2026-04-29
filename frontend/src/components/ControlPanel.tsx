@@ -3,7 +3,7 @@
 //   - horizontal: inside the desktop controls bar above BottomBar
 // Both share the same signals and input elements; only layout differs.
 
-import { layout, encoding, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom } from '../state';
+import { layout, encoding, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom, simStereo, introductionStereo, loopOverlap } from '../state';
 import type { Layout, Encoding, SourceMode } from '../state';
 import { TooltipLabel } from './Tooltip';
 
@@ -20,6 +20,8 @@ const TOOLTIPS = {
   'BOT TEXT': 'Show the weather, UTC time, and eclipse phase block at the bottom of each eye.',
   TELESCOPES: 'Show or hide the telescope grid overlay in the 3D scene.',
   FOCUS: 'Center the 3D camera on the full system, Earth, or the Moon.',
+  STEREO: 'Render the orbital diagram in stereo using the current layout and encoding — like wearing 3D glasses sized to Earth.',
+  LOOP: 'Loop playback between the start and end of the Boston/Santiago overlap window.',
 } as const;
 
 type LabelKey = keyof typeof TOOLTIPS;
@@ -189,6 +191,7 @@ export function ControlPanelBody() {
     <div style={{ padding: '10px 12px 12px', width: 260 }}>
       <StereoControls orientation="vertical" />
       <SimControls orientation="vertical" />
+      <IntroductionControls orientation="vertical" />
     </div>
   );
 }
@@ -196,7 +199,11 @@ export function ControlPanelBody() {
 // ---------- Shared control groups (both orientations) ----------
 
 export function StereoControls({ orientation }: { orientation: Orientation }) {
-  if (view.value === 'sim') return null;
+  // Stereo (videos) controls only — these settings (source switch, frame
+  // correction, eye-overlay text toggles, parallax) are about the live
+  // telescope footage, not the orbital diagram. The introduction view has
+  // its own minimal control group.
+  if (view.value !== 'stereo') return null;
 
   if (orientation === 'vertical') {
     return (
@@ -211,6 +218,9 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
           <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
         </VRow>
         <VRow label="PARALLAX"><ParallaxSlider width={100} /></VRow>
+        <VRow label="LOOP">
+          <Switch checked={loopOverlap.value} onToggle={() => (loopOverlap.value = !loopOverlap.value)} />
+        </VRow>
         <VRow label="TOP TEXT">
           <Switch checked={showEyeTop.value} onToggle={() => (showEyeTop.value = !showEyeTop.value)} />
         </VRow>
@@ -233,6 +243,9 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
         <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
       </HCell>
       <HCell label="PARALLAX"><ParallaxSlider width={120} /></HCell>
+      <HCell label="LOOP">
+        <Switch checked={loopOverlap.value} onToggle={() => (loopOverlap.value = !loopOverlap.value)} />
+      </HCell>
       <HCell label="TOP TEXT">
         <Switch checked={showEyeTop.value} onToggle={() => (showEyeTop.value = !showEyeTop.value)} />
       </HCell>
@@ -249,6 +262,15 @@ export function SimControls({ orientation }: { orientation: Orientation }) {
   if (orientation === 'vertical') {
     return (
       <>
+        <VRow label="STEREO">
+          <Switch checked={simStereo.value} onToggle={() => (simStereo.value = !simStereo.value)} />
+        </VRow>
+        {simStereo.value && (
+          <>
+            <VRow label="LAYOUT"><LayoutSelect /></VRow>
+            <VRow label="ENCODING"><EncodingSelect /></VRow>
+          </>
+        )}
         <VRow label="FLIP HEAD">
           <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
         </VRow>
@@ -270,6 +292,15 @@ export function SimControls({ orientation }: { orientation: Orientation }) {
 
   return (
     <>
+      <HCell label="STEREO">
+        <Switch checked={simStereo.value} onToggle={() => (simStereo.value = !simStereo.value)} />
+      </HCell>
+      {simStereo.value && (
+        <>
+          <HCell label="LAYOUT"><LayoutSelect /></HCell>
+          <HCell label="ENCODING"><EncodingSelect /></HCell>
+        </>
+      )}
       <HCell label="FLIP HEAD">
         <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
       </HCell>
@@ -280,6 +311,54 @@ export function SimControls({ orientation }: { orientation: Orientation }) {
       <span class="text-[10px] opacity-50" style={{ letterSpacing: '0.05em', marginLeft: 8 }}>
         drag to orbit · scroll to zoom
       </span>
+    </>
+  );
+}
+
+// Controls relevant to the introduction view. Most stereo (videos) settings
+// don't apply here — there is no video source to swap, no per-frame angle
+// correction, no per-eye text overlay. We expose only the knobs that
+// actually change what the user sees: stereo on/off, layout/encoding when
+// stereo is on, flip-head for upside-down headsets, and parallax shift.
+export function IntroductionControls({ orientation }: { orientation: Orientation }) {
+  if (view.value !== 'introduction') return null;
+  const stereoOn = introductionStereo.value;
+
+  if (orientation === 'vertical') {
+    return (
+      <>
+        <VRow label="STEREO">
+          <Switch checked={stereoOn} onToggle={() => (introductionStereo.value = !stereoOn)} />
+        </VRow>
+        {stereoOn && (
+          <>
+            <VRow label="LAYOUT"><LayoutSelect /></VRow>
+            <VRow label="ENCODING"><EncodingSelect /></VRow>
+            <VRow label="PARALLAX"><ParallaxSlider width={100} /></VRow>
+          </>
+        )}
+        <VRow label="FLIP HEAD">
+          <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
+        </VRow>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <HCell label="STEREO">
+        <Switch checked={stereoOn} onToggle={() => (introductionStereo.value = !stereoOn)} />
+      </HCell>
+      {stereoOn && (
+        <>
+          <HCell label="LAYOUT"><LayoutSelect /></HCell>
+          <HCell label="ENCODING"><EncodingSelect /></HCell>
+          <HCell label="PARALLAX"><ParallaxSlider width={120} /></HCell>
+        </>
+      )}
+      <HCell label="FLIP HEAD">
+        <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
+      </HCell>
     </>
   );
 }

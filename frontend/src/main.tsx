@@ -1,8 +1,9 @@
 import './style.css';
+import * as THREE from 'three';
 import { render } from 'preact';
 import { effect } from '@preact/signals';
 import { useState, useEffect } from 'preact/hooks';
-import { computeFrame, SIM_START, SIM_END } from './astronomy';
+import { computeFrame, SIM_START, SIM_END, AU_TO_ER } from './astronomy';
 import type { EclipseData } from './astronomy';
 import { PlanetaryScene } from './scene';
 import { StereoRenderer } from './stereo';
@@ -34,12 +35,25 @@ import {
   view,
   showTelescopes,
   scrubbing,
+  simStereo,
+  introductionPage,
+  introductionStereo,
+  introductionCardHeight,
+  loopOverlap,
+  viewportWidth,
+  viewportHeight,
   RATE_STEPS,
   DEFAULT_RATE_INDEX,
 } from './state';
 
 const CROSSFADE_THRESHOLD_RATE = 30;
 const DEG2RAD = Math.PI / 180;
+
+// IPD for the stereo render of the orbital diagram, in scene units (Earth
+// radii). 0.4 ER ≈ 2,500 km — the head-as-Earth conceit. Big enough to give
+// the Moon noticeable depth at the default OrbitControls distance, small
+// enough not to over-distort the Earth in close-up keyframes.
+const SIM_STEREO_IPD = 0.4;
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
@@ -65,6 +79,11 @@ let manifest: Manifest | null = null;
 let bostonVideo: HTMLVideoElement | null = null;
 let santiagoVideo: HTMLVideoElement | null = null;
 let stereo: StereoRenderer | null = null;
+// Second StereoRenderer instance for the sim view's stereo render. Lazy:
+// initialized once the sim-stereo canvas appears in the DOM. Outputs into
+// `#sim-stereo-canvas` mounted inside `#sim-canvas-host`.
+let simStereoRenderer: StereoRenderer | null = null;
+let simStereoCanvasEl: HTMLCanvasElement | null = null;
 let frameParity = 0;
 
 // --- Cross-fade per side ---
@@ -469,14 +488,52 @@ function initStereoCanvas() {
       err,
     );
   }
+  initSimStereoCanvas();
   requestAnimationFrame(animate);
 }
+
+// Mount a sibling canvas inside `#sim-canvas-host` and attach a second
+// StereoRenderer to it. Used to display the stereo render of the orbital
+// diagram. The Three.js canvas underneath is hidden (display:none) when
+// stereo is on; OrbitControls is swapped over to the visible canvas so
+// pointer events still drive the camera.
+function initSimStereoCanvas() {
+  const host = document.getElementById('sim-canvas-host');
+  if (!host) {
+    requestAnimationFrame(initSimStereoCanvas);
+    return;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.id = 'sim-stereo-canvas';
+  canvas.style.position = 'absolute';
+  canvas.style.inset = '0';
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  canvas.style.display = 'none';
+  canvas.style.zIndex = '2';
+  host.appendChild(canvas);
+  simStereoCanvasEl = canvas;
+  try {
+    simStereoRenderer = new StereoRenderer(canvas);
+    resize();
+  } catch (err) {
+    console.error(
+      '[frontend] sim stereo renderer init failed (WebGL2 required):',
+      err,
+    );
+  }
+}
+
 function resize() {
-  if (!stereo) return;
   const dpr = window.devicePixelRatio || 1;
   const w = Math.floor(window.innerWidth * dpr);
   const h = Math.floor(window.innerHeight * dpr);
-  stereo.resize(w, h);
+  if (stereo) stereo.resize(w, h);
+  if (simStereoRenderer && simStereoCanvasEl) {
+    // The sim host fills its own absolute container which is the full
+    // viewport; canvas pixel size matches the window like the main stereo.
+    simStereoRenderer.resize(w, h);
+  }
 }
 
 initStereoCanvas();
@@ -498,9 +555,297 @@ effect(() => {
   if (scene) scene.setTelescopesVisible(showTelescopes.value);
 });
 
+// --- Visibility + OrbitControls target swap when sim stereo toggles ---
+// The Three.js canvas and the sim-stereo canvas are siblings inside
+// `#sim-canvas-host`. Whichever one is active is shown via display:block;
+// OrbitControls is re-attached to the visible canvas so pointer events
+// reach it.
+effect(() => {
+  const on = simStereo.value;
+  if (!scene) return;
+  const threeCanvas = scene.getDomElement();
+  if (simStereoCanvasEl) {
+    simStereoCanvasEl.style.display = on ? 'block' : 'none';
+  }
+  threeCanvas.style.display = on ? 'none' : 'block';
+  const target = on ? simStereoCanvasEl : threeCanvas;
+  if (target) scene.swapControlsTarget(target);
+});
+
 // --- Drive sync simRate from rateIdx signal ---
 effect(() => {
   sync.setSimRate(RATE_STEPS[rateIdx.value]);
+});
+
+// --- LOOP toggle: snap into the overlap window on activation ---
+// When the user enables LOOP from outside the Boston/Santiago overlap,
+// jump the playhead to the overlap start so the next frame they see is the
+// segment they asked to loop. Without this, toggling LOOP on while parked
+// at SIM_END would do nothing visible until they pressed play and the
+// wrap-around handler in the animation loop kicked in.
+effect(() => {
+  if (!loopOverlap.value) return;
+  if (!sync.hasTracks()) return;
+  const overlapStartMs = sync.overlapStartUTC() * 1000;
+  const overlapEndMs = sync.overlapEndUTC() * 1000;
+  if (overlapEndMs <= overlapStartMs) return;
+  const now = currentTime.peek();
+  if (now < overlapStartMs || now >= overlapEndMs) {
+    currentTime.value = overlapStartMs;
+  }
+});
+
+// --- Introduction keyframes ---
+// While the introduction view is active, force stereo sim rendering on,
+// lock OrbitControls, and tween the camera to a per-page keyframe. On
+// exit (view changes to anything else), restore the user's previous
+// simStereo state and unlock controls.
+//
+// Keyframes are computed from the current frame so framing stays correct
+// regardless of when during the eclipse the user opens the introduction.
+
+let savedSimStereo: boolean | null = null;
+let lastIntroductionActive = false;
+let lastIntroductionPage = -1;
+
+// Three.js perspective camera default vertical FOV in radians.
+const DEFAULT_VFOV_RAD = (45 * Math.PI) / 180;
+
+// Returns the smaller of horizontal/vertical "tan(half-FOV)" for the
+// current viewport. Used to compute a camera distance that guarantees a
+// given world-space half-extent fits in frame on the binding axis.
+function tanHalfFovBinding(): number {
+  const w = viewportWidth.value;
+  const h = viewportHeight.value;
+  const aspect = h > 0 ? w / h : 1;
+  const tanV = Math.tan(DEFAULT_VFOV_RAD / 2);
+  const tanH = aspect * tanV;
+  return Math.min(tanV, tanH);
+}
+
+// World Y axis — the conventional camera up. Used for the wide-system and
+// Earth+Sun pages; ecliptic-horizontal is the standard celestial-diagram
+// orientation.
+const WORLD_UP = new THREE.Vector3(0, 1, 0);
+
+// Compute the camera up that puts the Boston→Santiago line horizontally on
+// screen with Boston on screen-left. Mirrors the `corrected` branch of
+// scene.ts `orientTelescope` (lines ~340-360): project the baseline onto
+// the camera's image plane and take its perpendicular as the up vector.
+function eyeAxisUp(
+  pos: THREE.Vector3,
+  target: THREE.Vector3,
+  boston: THREE.Vector3,
+  santiago: THREE.Vector3,
+): THREE.Vector3 {
+  const gaze = target.clone().sub(pos).normalize();
+  const baseline = santiago.clone().sub(boston); // Boston→Santiago = right
+  const right = baseline
+    .clone()
+    .sub(gaze.clone().multiplyScalar(baseline.dot(gaze)));
+  if (right.lengthSq() < 1e-6) return WORLD_UP.clone();
+  right.normalize();
+  return new THREE.Vector3().crossVectors(right, gaze).normalize();
+}
+
+function keyframeForPage(
+  pageIdx: number,
+): { pos: THREE.Vector3; target: THREE.Vector3; up: THREE.Vector3 } {
+  // Peek `currentTime` rather than subscribing — this function is called
+  // from the introduction effect, which would otherwise re-fire on every
+  // animation-frame tick of `currentTime` and snap the in-progress tween.
+  const frame = computeFrame(new Date(currentTime.peek()));
+  const moon = new THREE.Vector3(
+    frame.moonPos.x * AU_TO_ER,
+    frame.moonPos.z * AU_TO_ER,
+    -frame.moonPos.y * AU_TO_ER,
+  );
+  const sun = new THREE.Vector3(
+    frame.sunPos.x * AU_TO_ER,
+    frame.sunPos.z * AU_TO_ER,
+    -frame.sunPos.y * AU_TO_ER,
+  );
+  const boston = new THREE.Vector3(
+    frame.bostonPos.x * AU_TO_ER,
+    frame.bostonPos.z * AU_TO_ER,
+    -frame.bostonPos.y * AU_TO_ER,
+  );
+  const santiago = new THREE.Vector3(
+    frame.santiagoPos.x * AU_TO_ER,
+    frame.santiagoPos.z * AU_TO_ER,
+    -frame.santiagoPos.y * AU_TO_ER,
+  );
+
+  const aspect = viewportHeight.value > 0
+    ? viewportWidth.value / viewportHeight.value
+    : 1;
+
+  if (pageIdx === 0) {
+    // Wide system view — Earth in foreground, Moon visible somewhere in
+    // the frame. Frame Earth and Moon both within a sphere of radius
+    // |moon| around their midpoint. Camera floats above-and-to-one-side
+    // of the system so the viewer reads it as a 3D arrangement, not a
+    // flat plot.
+    const mid = moon.clone().multiplyScalar(0.5);
+    const halfExtent = moon.length() * 0.6 + 5; // include Earth radius + air
+    // Camera distance from mid that fits halfExtent on the binding axis.
+    const D = halfExtent / tanHalfFovBinding();
+    // Compose offset from a fixed direction (one positive of each axis)
+    // so the system reads with depth instead of a profile.
+    const dir = new THREE.Vector3(0.3, 0.5, 0.8).normalize();
+    const pos = mid.clone().addScaledVector(dir, D);
+    return { pos, target: mid, up: WORLD_UP.clone() };
+  }
+
+  if (pageIdx === 1) {
+    // "The Angle": close on the Earth-Moon line. Camera sits perpendicular
+    // to the Earth-Moon axis in the world horizontal plane, far enough to
+    // frame both bodies plus the gaze lines on the binding viewport axis.
+    // Target = midpoint of Earth-Moon.
+    const moonDir = moon.clone().normalize();
+    const upWorld = new THREE.Vector3(0, 1, 0);
+    const perp = new THREE.Vector3().crossVectors(moonDir, upWorld);
+    if (perp.lengthSq() < 1e-6) perp.set(1, 0, 0);
+    perp.normalize();
+    const mid = moon.clone().multiplyScalar(0.5);
+    // Earth and Moon each sit |moon|/2 from mid along the moon axis. With
+    // the camera looking down -perp at mid, that axis maps to the camera's
+    // horizontal. Pick D so the binding-axis half-extent (the one that's
+    // actually limiting on the current aspect ratio) covers half-separation
+    // plus a margin.
+    const halfSep = moon.length() * 0.5 + 4; // small margin for body radii
+    const margin = 1.35;
+    const D = (halfSep * margin) / tanHalfFovBinding();
+    // Lift the camera a little above the ecliptic so the geometry reads in
+    // 3D rather than as a flat profile. Scale lift with D so the angle
+    // stays consistent across viewport sizes.
+    const lift = D * 0.28;
+    const offset = perp.multiplyScalar(D).add(new THREE.Vector3(0, lift, 0));
+    void aspect;
+    const pos = mid.clone().add(offset);
+    // Roll the camera so the Boston→Santiago baseline lands horizontally
+    // on screen with Boston on the left. This page is the explicit "your
+    // eyes are Boston and Santiago" mapping, so vertically-stacked
+    // observers would land oddly.
+    return { pos, target: mid, up: eyeAxisUp(pos, mid, boston, santiago) };
+  }
+
+  if (pageIdx === 2) {
+    // "Head as Earth": camera close to Earth, looking at the Moon. The
+    // SIM_STEREO_IPD of 0.4 ER becomes the dominant cue at this scale.
+    // Position: ~3 ER from origin, perpendicular to the Earth-Moon axis
+    // so Earth is in frame as a foreground anchor.
+    const moonDir = moon.clone().normalize();
+    const upWorld = new THREE.Vector3(0, 1, 0);
+    const perp = new THREE.Vector3().crossVectors(moonDir, upWorld);
+    if (perp.lengthSq() < 1e-6) perp.set(1, 0, 0);
+    perp.normalize();
+    const pos = perp.multiplyScalar(2.5).add(new THREE.Vector3(0, 0.6, 0));
+    // Same baseline-aligned roll as page 1 — the metaphor still applies
+    // when the viewer is "inside" Earth-scale looking at the Moon.
+    return { pos, target: moon, up: eyeAxisUp(pos, moon, boston, santiago) };
+  }
+
+  // Page 3 — Sun + Earth + Moon together. The Sun sits ~23,500 ER away, so
+  // any framing that fits all three has Earth/Moon as sub-pixel points.
+  // Instead, anchor on Earth at a moderate distance and let the Sun appear
+  // as a bright disk off in the direction of the Sun. The viewer reads the
+  // Sun's position from where the disk lights up, not from its size.
+  const sunDir = sun.clone().normalize();
+  const upWorld = new THREE.Vector3(0, 1, 0);
+  const perp = new THREE.Vector3().crossVectors(sunDir, upWorld);
+  if (perp.lengthSq() < 1e-6) perp.set(1, 0, 0);
+  perp.normalize();
+  // Camera 150 ER from origin perpendicular to the Sun direction, slightly
+  // above the ecliptic. From here Earth and Moon are both clearly visible
+  // and the Sun's blazing disk reads from the corner of the frame.
+  const pos = perp.multiplyScalar(150).add(new THREE.Vector3(0, 60, 0));
+  return { pos, target: new THREE.Vector3(0, 0, 0), up: WORLD_UP.clone() };
+}
+
+// Apply the introduction-card safe-area bias to a keyframe: shift the
+// look-at target along `-up` (= "down" in screen) by half the card's
+// vertical screen fraction, so bodies appear lifted above the card. The
+// shift is in world units derived from the camera's vertical FOV at the
+// pos→target distance.
+function applyCardLift(k: { pos: THREE.Vector3; target: THREE.Vector3; up: THREE.Vector3 }): { pos: THREE.Vector3; target: THREE.Vector3; up: THREE.Vector3 } {
+  const vh = viewportHeight.value;
+  const ch = introductionCardHeight.value;
+  if (vh <= 0 || ch <= 0) return k;
+  // Cap at 0.5 so a giant card on a tiny viewport doesn't swing the
+  // framing past the top of the screen.
+  const safeBottomFrac = Math.min(0.5, ch / vh);
+  const liftFrac = safeBottomFrac * 0.5;
+  const distance = k.pos.distanceTo(k.target);
+  const frameHeightWorld = 2 * distance * Math.tan(DEFAULT_VFOV_RAD / 2);
+  const shift = liftFrac * frameHeightWorld;
+  return {
+    pos: k.pos,
+    target: k.target.clone().addScaledVector(k.up, -shift),
+    up: k.up,
+  };
+}
+
+effect(() => {
+  if (!scene) return;
+  const active = view.value === 'introduction';
+  const page = introductionPage.value;
+  // Subscribe to viewport size + card height so the effect re-fires on
+  // window resize or when the card's measured height changes (different
+  // page copy, narrow → desktop wrap, etc.) and re-frames accordingly.
+  const vw = viewportWidth.value;
+  const vh = viewportHeight.value;
+  const ch = introductionCardHeight.value;
+  void vw; void vh; void ch;
+
+  if (active && !lastIntroductionActive) {
+    // Entering the introduction — snapshot user state, sync simStereo to
+    // the introduction-specific toggle (off by default so text reads
+    // cleanly), lock controls, jump to keyframe 0 instantly so the page
+    // opens already framed instead of swooping in from wherever the camera
+    // was.
+    // Peek both — we don't want this effect to re-fire on simStereo changes
+    // (which we make ourselves below and via the sync effect) or on
+    // introductionStereo changes (handled by the sync effect). Re-firing
+    // here would interrupt in-progress page tweens with a snap.
+    savedSimStereo = simStereo.peek();
+    simStereo.value = introductionStereo.peek();
+    scene.setControlsEnabled(false);
+    // Reset to page 0 every time the introduction is entered — it's an
+    // intro, so re-entering should restart from the beginning.
+    if (introductionPage.value !== 0) introductionPage.value = 0;
+    const k = applyCardLift(keyframeForPage(0));
+    scene.tweenCameraTo(k.pos, k.target, 0, k.up);
+    lastIntroductionPage = 0;
+  } else if (active && lastIntroductionActive) {
+    // Either page changed or viewport / card height changed. Tween
+    // between pages, snap when only the framing parameters changed (so
+    // the camera doesn't lazily re-fit during a window drag).
+    const k = applyCardLift(keyframeForPage(page));
+    const duration = page === lastIntroductionPage ? 0 : 900;
+    scene.tweenCameraTo(k.pos, k.target, duration, k.up);
+    lastIntroductionPage = page;
+  } else if (!active && lastIntroductionActive) {
+    // Leaving the introduction — restore the user's previous simStereo
+    // state, unlock OrbitControls, and snap camera up back to world Y so
+    // the free-look sim view starts right-side-up regardless of which
+    // page the user left from.
+    if (savedSimStereo !== null) simStereo.value = savedSimStereo;
+    savedSimStereo = null;
+    scene.setControlsEnabled(true);
+    scene.snapCameraUp(WORLD_UP);
+    lastIntroductionPage = -1;
+  }
+  lastIntroductionActive = active;
+});
+
+// While in introduction, keep simStereo synced to the introduction-
+// specific toggle. Outside the introduction this effect is a no-op so it
+// doesn't fight the user's normal simStereo control in the sim view.
+effect(() => {
+  const wantStereo = introductionStereo.value;
+  if (view.peek() !== 'introduction') return;
+  simStereo.value = wantStereo;
 });
 
 // --- Animation loop ---
@@ -513,9 +858,20 @@ function animate(realTime: number) {
     const dt = (realTime - lastRealTime) / 1000;
     const rate = RATE_STEPS[rateIdx.value];
     const t = currentTime.value + dt * rate * 1000;
-    // Stop at SIM_END instead of looping: pin time to the end and pause.
-    // User can seek back with the scrubber or arrow keys to resume.
-    if (t >= SIM_END.getTime()) {
+    // In stereo view with LOOP on, wrap playback inside the Boston/Santiago
+    // overlap window — the segment with both cameras live, where the
+    // stereoscopy is meaningful. Otherwise pin to SIM_END and pause.
+    const looping =
+      loopOverlap.value && view.value === 'stereo' && sync.hasTracks();
+    if (looping) {
+      const overlapStartMs = sync.overlapStartUTC() * 1000;
+      const overlapEndMs = sync.overlapEndUTC() * 1000;
+      if (overlapEndMs > overlapStartMs && t >= overlapEndMs) {
+        currentTime.value = overlapStartMs;
+      } else {
+        currentTime.value = t;
+      }
+    } else if (t >= SIM_END.getTime()) {
       currentTime.value = SIM_END.getTime();
       playing.value = false;
     } else {
@@ -529,6 +885,7 @@ function animate(realTime: number) {
 
   if (scene) {
     scene.applyFrameState(frame);
+    scene.updateBodyScales(view.value === 'introduction');
     scene.renderPIPOutputs();
   }
 
@@ -542,8 +899,30 @@ function animate(realTime: number) {
 
   if (!stereo) return;
 
-  if (view.value === 'sim') {
-    if (scene) scene.renderMain();
+  if (view.value === 'sim' || view.value === 'introduction') {
+    if (!scene) return;
+    if (simStereo.value && simStereoRenderer) {
+      scene.renderMainStereo(SIM_STEREO_IPD);
+      const left = scene.getMainStereoCanvas('left');
+      const right = scene.getMainStereoCanvas('right');
+      if (left && right) {
+        simStereoRenderer.uploadSource('left', left);
+        simStereoRenderer.uploadSource('right', right);
+        simStereoRenderer.render({
+          leftAngleRad: 0,
+          rightAngleRad: 0,
+          leftAlpha: 1,
+          rightAlpha: 1,
+          layout: layout.value,
+          encoding: encoding.value,
+          parallaxPx: parallaxPx.value,
+          swap: flipHead.value,
+          frameParity,
+        });
+      }
+    } else {
+      scene.renderMain();
+    }
     return;
   }
 
@@ -630,7 +1009,10 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Tab') {
     e.preventDefault();
-    view.value = view.value === 'stereo' ? 'sim' : 'stereo';
+    const order: typeof view.value[] = ['introduction', 'stereo', 'sim'];
+    const dir = e.shiftKey ? -1 : 1;
+    const idx = order.indexOf(view.value);
+    view.value = order[(idx + dir + order.length) % order.length];
     return;
   }
   if (!videosReady.value) return;

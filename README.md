@@ -52,12 +52,14 @@ browser-viewer videos are tracked. See [.gitignore](.gitignore).
 
 ## Getting the raw videos
 
-Download the two raw Seestar S50 captures and drop them into place:
+Download the two raw Seestar S50 captures from the
+[Google Drive folder](https://drive.google.com/drive/folders/1du3FQlV5k2nVcaGt13kYVzGiATHTmKKl?usp=sharing)
+and drop them into place:
 
-| Site     | File                                    | Source                             |
-| -------- | --------------------------------------- | ---------------------------------- |
-| Boston   | `2026-03-02-174133-Lunar-timelapse.mp4` | <!-- TODO: paste download link --> |
-| Santiago | `2026-03-02-214004-Lunar-timelapse.mp4` | <!-- TODO: paste download link --> |
+| Site     | File                                    | Source                                                                                               |
+| -------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Boston   | `2026-03-02-174133-Lunar-timelapse.mp4` | [Google Drive](https://drive.google.com/drive/folders/1du3FQlV5k2nVcaGt13kYVzGiATHTmKKl?usp=sharing) |
+| Santiago | `2026-03-02-214004-Lunar-timelapse.mp4` | [Google Drive](https://drive.google.com/drive/folders/1du3FQlV5k2nVcaGt13kYVzGiATHTmKKl?usp=sharing) |
 
 Target paths (must match the filenames above — the pipeline derives sibling
 filenames from these):

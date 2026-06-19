@@ -50,10 +50,63 @@ export const loadProgress = signal<number>(0);
 export const rateIdx = persisted<number>('rateIdx', DEFAULT_RATE_INDEX);
 
 export const layout = persisted<Layout>('layout', 'sbs-half');
-// Default first-time visitors to `wiggle`: it shows the Moon's depth with no
-// glasses and no special display, on any screen. Returning users keep their
-// persisted choice (anaglyph, raw stereo, etc.).
-export const encoding = persisted<Encoding>('encoding', 'wiggle');
+// Default first-time visitors to raw side-by-side (`none` + `sbs-half`): two
+// Moons sat next to each other read immediately as a stereo *pair* — the piece
+// is literally a stereoscope, and the side-by-side arrangement makes the "two
+// viewpoints, one subject" idea legible at a glance (fuse by crossing/relaxing
+// the eyes, or use a stereoscope). The glasses-free `wiggle` and the anaglyph /
+// shutter modes are one click away in CONTROLS. Returning users keep their
+// persisted choice.
+export const encoding = persisted<Encoding>('encoding', 'none');
+
+// Viewing METHOD — a UI-only grouping derived from `encoding` (which stays the
+// single persisted source of truth). The control bar presents the method as the
+// primary choice and then shows only that method's secondary control: `split`
+// → LAYOUT, `wiggle` → speed, `anaglyph` → color variant, `shutter` → none.
+// `split` covers the raw stereo pair in either side-by-side or top-bottom
+// arrangement (chosen via LAYOUT); its user-facing label is "side-by-side".
+export type Method = 'split' | 'wiggle' | 'anaglyph' | 'shutter';
+export const ANAGLYPH_ENCODINGS: Encoding[] = [
+  'anaglyph-rc',
+  'anaglyph-rc-dubois',
+  'anaglyph-gm',
+  'anaglyph-amber',
+];
+export function methodOf(enc: Encoding): Method {
+  switch (enc) {
+    case 'none':
+      return 'split';
+    case 'wiggle':
+      return 'wiggle';
+    case 'frame-seq':
+      return 'shutter';
+    case 'anaglyph-rc':
+    case 'anaglyph-rc-dubois':
+    case 'anaglyph-gm':
+    case 'anaglyph-amber':
+      return 'anaglyph';
+  }
+}
+export const method = computed<Method>(() => methodOf(encoding.value));
+export function setMethod(m: Method) {
+  switch (m) {
+    case 'split':
+      encoding.value = 'none';
+      break;
+    case 'wiggle':
+      encoding.value = 'wiggle';
+      break;
+    case 'shutter':
+      encoding.value = 'frame-seq';
+      break;
+    case 'anaglyph':
+      // Keep the current anaglyph variant if we're already on one; otherwise
+      // default to red/cyan. Switching away and back doesn't remember the
+      // previous variant — `encoding` is the only source of truth.
+      if (!ANAGLYPH_ENCODINGS.includes(encoding.value)) encoding.value = 'anaglyph-rc';
+      break;
+  }
+}
 
 // Wiggle (a.k.a. wobble / wigglegram) half-period in milliseconds: how long
 // each eye is shown before swapping to the other. ~150ms ≈ 3.3 swaps/sec,
@@ -86,13 +139,12 @@ export const loopOverlap = persisted<boolean>('loopOverlap', false);
 // Earth/Moon.
 export const introductionCardHeight = signal<number>(0);
 
-// First-time visitors land straight on the stereo video; the introduction is
-// now a dismissible pop-up over it (see `showIntro`), not a standalone view.
-// Returning users land on whichever view they last selected. Any stale
-// persisted 'introduction' from older sessions is coerced to 'stereo' since
-// the introduction is no longer a navigable view.
-export const view = persisted<View>('view', 'stereo');
-if (view.value === 'introduction') view.value = 'stereo';
+// The app always opens on the stereoscopy view. Which tab the user was last on
+// is intentionally NOT remembered across sessions (every other setting still
+// persists) — a fresh load should greet the visitor with the Moon, not wherever
+// they happened to leave off. The introduction is a dismissible pop-up over the
+// stereo video (see `showIntro`), not a standalone view.
+export const view = signal<View>('stereo');
 export const panelOpen = signal<boolean>(false);
 export const showTelescopes = persisted<boolean>('showTelescopes', true);
 // Per-eye overlay text toggles (stereo view). `showEyeTop` = city name +

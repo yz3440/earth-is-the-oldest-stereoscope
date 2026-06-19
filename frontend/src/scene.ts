@@ -40,18 +40,6 @@ export class PlanetaryScene {
   private santiagoRawCam: THREE.PerspectiveCamera;
   private santiagoCorrectedCam: THREE.PerspectiveCamera;
 
-  // Stereo render of the main scene: two cameras laterally offset from
-  // `this.camera`, each rendered to a render target whose pixels are copied
-  // into a 2D canvas for upload to StereoRenderer.
-  private mainLeftCam: THREE.PerspectiveCamera;
-  private mainRightCam: THREE.PerspectiveCamera;
-  private mainStereoCanvases: { left: HTMLCanvasElement; right: HTMLCanvasElement } | null = null;
-  private mainStereoCtxs: { left: CanvasRenderingContext2D; right: CanvasRenderingContext2D } | null = null;
-  private mainStereoImageData: { left: ImageData; right: ImageData } | null = null;
-  private mainStereoRT: { left: THREE.WebGLRenderTarget; right: THREE.WebGLRenderTarget } | null = null;
-  private mainStereoSize: { w: number; h: number } = { w: 0, h: 0 };
-  private mainStereoPixelBuffer: Uint8Array | null = null;
-
   // Camera tween state. Drives a smooth interpolation of `this.camera.position`,
   // `this.controls.target`, and `this.camera.up` between two keyframes;
   // updated each render. The `up` interpolation lets keyframes roll the
@@ -225,11 +213,6 @@ export class PlanetaryScene {
     this.bostonCorrectedCam = new THREE.PerspectiveCamera(TEL_FOV, 1, 1, 100000);
     this.santiagoRawCam = new THREE.PerspectiveCamera(TEL_FOV, 1, 1, 100000);
     this.santiagoCorrectedCam = new THREE.PerspectiveCamera(TEL_FOV, 1, 1, 100000);
-
-    // Main stereo cameras: settings are copied from `this.camera` every frame
-    // before rendering, so the constructor values are placeholders.
-    this.mainLeftCam = new THREE.PerspectiveCamera(45, 1, 0.1, 100000);
-    this.mainRightCam = new THREE.PerspectiveCamera(45, 1, 0.1, 100000);
   }
 
   getDomElement(): HTMLCanvasElement {
@@ -245,25 +228,6 @@ export class PlanetaryScene {
     this.controls.maxDistance = 50000;
   }
 
-  // Move OrbitControls to listen on a different DOM element. Used when the
-  // sim view toggles between the regular Three.js canvas and the stereo
-  // composite canvas — pointer events need to land on whichever is visible.
-  swapControlsTarget(target: HTMLElement) {
-    if (this.controls && this.controls.domElement === target) return;
-    const enabled = this.controls?.enabled ?? true;
-    const cameraTarget = this.controls?.target.clone() ?? new THREE.Vector3();
-    if (this.controls) {
-      this.controls.dispose();
-      this.controls = null;
-    }
-    this.attachControls(target);
-    const c = this.controls as OrbitControls | null;
-    if (c) {
-      c.enabled = enabled;
-      c.target.copy(cameraTarget);
-    }
-  }
-
   // Externally settable lock for OrbitControls input. Used by the welcome
   // flow to keep the keyframed camera under tween control.
   setControlsEnabled(enabled: boolean) {
@@ -274,43 +238,6 @@ export class PlanetaryScene {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.mainLeftCam.aspect = w / h;
-    this.mainLeftCam.updateProjectionMatrix();
-    this.mainRightCam.aspect = w / h;
-    this.mainRightCam.updateProjectionMatrix();
-    this.resizeMainStereo(w, h);
-  }
-
-  private resizeMainStereo(w: number, h: number) {
-    if (w <= 0 || h <= 0) return;
-    if (this.mainStereoSize.w === w && this.mainStereoSize.h === h && this.mainStereoRT) return;
-    this.mainStereoSize = { w, h };
-    if (this.mainStereoRT) {
-      this.mainStereoRT.left.dispose();
-      this.mainStereoRT.right.dispose();
-    }
-    this.mainStereoRT = {
-      left: new THREE.WebGLRenderTarget(w, h, { depthBuffer: true, stencilBuffer: false }),
-      right: new THREE.WebGLRenderTarget(w, h, { depthBuffer: true, stencilBuffer: false }),
-    };
-    if (!this.mainStereoCanvases) {
-      const lc = document.createElement('canvas');
-      const rc = document.createElement('canvas');
-      this.mainStereoCanvases = { left: lc, right: rc };
-      this.mainStereoCtxs = {
-        left: lc.getContext('2d')!,
-        right: rc.getContext('2d')!,
-      };
-    }
-    this.mainStereoCanvases.left.width = w;
-    this.mainStereoCanvases.left.height = h;
-    this.mainStereoCanvases.right.width = w;
-    this.mainStereoCanvases.right.height = h;
-    this.mainStereoImageData = {
-      left: this.mainStereoCtxs!.left.createImageData(w, h),
-      right: this.mainStereoCtxs!.right.createImageData(w, h),
-    };
-    this.mainStereoPixelBuffer = new Uint8Array(w * h * 4);
   }
 
   applyFrameState(frame: FrameData) {
@@ -383,75 +310,6 @@ export class PlanetaryScene {
     this.renderer.render(this.scene, this.camera);
     // Telescope views are displayed via the DOM TelescopeGrid component
     // (scene.getPIPCanvas() feeds it) — no viewport inset overlay here.
-  }
-
-  // Render the main scene from two cameras laterally offset from
-  // `this.camera` by `±ipd/2` along its world-space right vector. Both
-  // cameras converge on the OrbitControls target. The two render targets
-  // are blitted into 2D canvases reachable via `getMainStereoCanvas` so
-  // the StereoRenderer can upload them as eye textures.
-  renderMainStereo(ipd: number) {
-    this.updateCameraTween();
-    if (this.controls) this.controls.update();
-    const el = this.renderer.domElement;
-    const w = el.clientWidth || el.width;
-    const h = el.clientHeight || el.height;
-    if (w <= 0 || h <= 0) return;
-    this.resizeMainStereo(w, h);
-    if (!this.mainStereoRT || !this.mainStereoCanvases || !this.mainStereoCtxs || !this.mainStereoImageData || !this.mainStereoPixelBuffer) return;
-
-    const target = this.controls ? this.controls.target : new THREE.Vector3();
-
-    this.camera.updateMatrixWorld();
-    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
-    const half = ipd * 0.5;
-
-    const setupSide = (cam: THREE.PerspectiveCamera, sign: number) => {
-      cam.position.copy(this.camera.position).addScaledVector(right, sign * half);
-      cam.up.copy(this.camera.up);
-      cam.fov = this.camera.fov;
-      cam.aspect = w / h;
-      cam.near = this.camera.near;
-      cam.far = this.camera.far;
-      cam.updateProjectionMatrix();
-      cam.lookAt(target);
-    };
-    setupSide(this.mainLeftCam, -1);
-    setupSide(this.mainRightCam, +1);
-
-    const renderToCanvas = (
-      cam: THREE.PerspectiveCamera,
-      rt: THREE.WebGLRenderTarget,
-      canvas: HTMLCanvasElement,
-      ctx: CanvasRenderingContext2D,
-      img: ImageData,
-    ) => {
-      const prev = this.renderer.getRenderTarget();
-      this.renderer.setRenderTarget(rt);
-      this.renderer.setClearColor(0x000000, 1);
-      this.renderer.clear();
-      this.renderer.render(this.scene, cam);
-      this.renderer.setRenderTarget(prev);
-      this.renderer.setClearColor(0x000000);
-      const pixels = this.mainStereoPixelBuffer!;
-      this.renderer.readRenderTargetPixels(rt, 0, 0, w, h, pixels);
-      // WebGL gives us bottom-up rows; flip to top-down for the 2D canvas.
-      const rowBytes = w * 4;
-      for (let y = 0; y < h; y++) {
-        const src = (h - 1 - y) * rowBytes;
-        const dst = y * rowBytes;
-        img.data.set(pixels.subarray(src, src + rowBytes), dst);
-      }
-      ctx.putImageData(img, 0, 0);
-      void canvas;
-    };
-
-    renderToCanvas(this.mainLeftCam, this.mainStereoRT.left, this.mainStereoCanvases.left, this.mainStereoCtxs.left, this.mainStereoImageData.left);
-    renderToCanvas(this.mainRightCam, this.mainStereoRT.right, this.mainStereoCanvases.right, this.mainStereoCtxs.right, this.mainStereoImageData.right);
-  }
-
-  getMainStereoCanvas(side: 'left' | 'right'): HTMLCanvasElement | null {
-    return this.mainStereoCanvases ? this.mainStereoCanvases[side] : null;
   }
 
   // Animate `this.camera.position`, `this.controls.target`, and

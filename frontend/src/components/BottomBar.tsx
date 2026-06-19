@@ -5,6 +5,8 @@ import {
   videosReady,
   rateIdx,
   view,
+  showIntro,
+  openIntroduction,
   panelOpen,
   RATE_STEPS,
   DEFAULT_RATE_INDEX,
@@ -26,7 +28,7 @@ function setRate(i: number) {
   rateIdx.value = clamp(i, 0, RATE_STEPS.length - 1);
 }
 
-function Tab({ id, label }: { id: 'stereo' | 'sim' | 'introduction'; label: string }) {
+function Tab({ id, label }: { id: 'stereo' | 'sim'; label: string }) {
   const active = view.value === id;
   // Bare-text nav, not a boxed control: strip border/background so the tab
   // reads as inline navigation alongside the heavier play / rate / CONTROLS
@@ -36,6 +38,30 @@ function Tab({ id, label }: { id: 'stereo' | 'sim' | 'introduction'; label: stri
     <button
       type='button'
       onClick={() => (view.value = id)}
+      class='tab-bare'
+      style={{
+        padding: '4px 6px',
+        fontSize: 11,
+        letterSpacing: '0.06em',
+        color: active ? 'var(--text)' : 'var(--text-3)',
+        borderBottom: active
+          ? '1px solid var(--text)'
+          : '1px solid transparent',
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+// The introduction is a pop-up over the video, not a view. This button
+// (re)opens it; it reads as active while the card is showing.
+function IntroButton({ label }: { label: string }) {
+  const active = showIntro.value;
+  return (
+    <button
+      type='button'
+      onClick={openIntroduction}
       class='tab-bare'
       style={{
         padding: '4px 6px',
@@ -228,7 +254,7 @@ export function BottomBar() {
         class='flex items-center'
         style={{ gap: narrow ? 4 : 8, flex: 'none' }}
       >
-        <Tab id='introduction' label={narrow ? 'INT' : 'INTRODUCTION'} />
+        <IntroButton label={narrow ? 'INT' : 'INTRODUCTION'} />
         <Tab id='stereo' label={narrow ? 'ST' : 'STEREOSCOPY'} />
         <Tab id='sim' label={narrow ? 'SIM' : 'SIMULATION'} />
       </div>

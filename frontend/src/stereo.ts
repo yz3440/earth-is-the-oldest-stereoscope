@@ -1,13 +1,17 @@
 // WebGL2 stereo compositor.
 //
 // Four layouts (sbs-half | sbs-full | tb-half | tb-full) determine the
-// spatial placement of the two eyes when encoding=none. Six encodings
-// (none + four anaglyph variants + frame-seq) control how the two eyes
-// are combined into the final color. Anaglyph/frame-seq ignore the layout.
+// spatial placement of the two eyes when encoding=none. Encodings control how
+// the two eyes are combined into the final color. `wiggle` and `frame-seq`
+// both show one full-frame eye at a time chosen by `u_frame_parity` — they
+// differ only in the rate at which the caller flips parity (wiggle: a slow
+// ~3/sec wall-clock wobble for glasses-free depth; frame-seq: every refresh
+// for DLP shutter glasses). Anaglyph / wiggle / frame-seq ignore the layout.
 
 export type Layout = 'sbs-half' | 'sbs-full' | 'tb-half' | 'tb-full';
 export type Encoding =
   | 'none'
+  | 'wiggle'
   | 'anaglyph-rc'
   | 'anaglyph-rc-dubois'
   | 'anaglyph-gm'
@@ -28,6 +32,7 @@ const ENCODING_ID: Record<Encoding, number> = {
   'anaglyph-gm':       3,
   'anaglyph-amber':    4,
   'frame-seq':         5,
+  'wiggle':            6,
 };
 
 const VS = `#version 300 es
@@ -58,11 +63,11 @@ uniform float u_right_alpha;
 
 uniform float u_canvas_aspect; // width/height of full canvas
 uniform int   u_layout;        // 0 sbs-half, 1 sbs-full, 2 tb-half, 3 tb-full
-uniform int   u_encoding;      // 0 none, 1 rc, 2 rc-dubois, 3 gm, 4 amber, 5 frame-seq
+uniform int   u_encoding;      // 0 none, 1 rc, 2 rc-dubois, 3 gm, 4 amber, 5 frame-seq, 6 wiggle
 uniform float u_parallax;      // uv offset per eye (L: -, R: +)
 uniform float u_squeeze;       // per-eye horizontal scale (>1 squeezes, <1 stretches)
 uniform bool  u_swap;
-uniform int   u_frame_parity;  // for frame-seq: 0 left, 1 right
+uniform int   u_frame_parity;  // for frame-seq / wiggle: 0 left, 1 right
 
 vec2 rotateUV(vec2 uv, float angle) {
   vec2 p = uv - 0.5;
@@ -168,8 +173,11 @@ void main() {
       if (u_layout == 3) eyeAspect = 1.0;
       col = sampleForEye(onTop ? 0 : 1, eyeUV, eyeAspect);
     }
-  } else if (u_encoding == 5) {
-    // Frame-sequential (DLP-Link): alternate full-frame each refresh.
+  } else if (u_encoding == 5 || u_encoding == 6) {
+    // Full-frame single eye chosen by parity. frame-seq (5) flips every
+    // refresh for DLP shutter glasses; wiggle (6) flips a few times a second
+    // for a glasses-free wobble. The shader is identical — only the caller's
+    // parity cadence differs.
     int eye = u_frame_parity;
     col = sampleForEye(eye, v_uv, cAspect);
   } else {

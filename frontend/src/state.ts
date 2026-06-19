@@ -4,6 +4,7 @@ import { OVERLAP_START } from './astronomy';
 export type Layout = 'sbs-full' | 'sbs-half' | 'tb-full' | 'tb-half';
 export type Encoding =
   | 'none'
+  | 'wiggle'
   | 'anaglyph-rc'
   | 'anaglyph-rc-dubois'
   | 'anaglyph-gm'
@@ -49,7 +50,69 @@ export const loadProgress = signal<number>(0);
 export const rateIdx = persisted<number>('rateIdx', DEFAULT_RATE_INDEX);
 
 export const layout = persisted<Layout>('layout', 'sbs-half');
+// Default first-time visitors to raw side-by-side (`none` + `sbs-half`): two
+// Moons sat next to each other read immediately as a stereo *pair* — the piece
+// is literally a stereoscope, and the side-by-side arrangement makes the "two
+// viewpoints, one subject" idea legible at a glance (fuse by crossing/relaxing
+// the eyes, or use a stereoscope). The glasses-free `wiggle` and the anaglyph /
+// shutter modes are one click away in CONTROLS. Returning users keep their
+// persisted choice.
 export const encoding = persisted<Encoding>('encoding', 'none');
+
+// Viewing METHOD — a UI-only grouping derived from `encoding` (which stays the
+// single persisted source of truth). The control bar presents the method as the
+// primary choice and then shows only that method's secondary control: `split`
+// → LAYOUT, `wiggle` → speed, `anaglyph` → color variant, `shutter` → none.
+// `split` covers the raw stereo pair in either side-by-side or top-bottom
+// arrangement (chosen via LAYOUT); its user-facing label is "side-by-side".
+export type Method = 'split' | 'wiggle' | 'anaglyph' | 'shutter';
+export const ANAGLYPH_ENCODINGS: Encoding[] = [
+  'anaglyph-rc',
+  'anaglyph-rc-dubois',
+  'anaglyph-gm',
+  'anaglyph-amber',
+];
+export function methodOf(enc: Encoding): Method {
+  switch (enc) {
+    case 'none':
+      return 'split';
+    case 'wiggle':
+      return 'wiggle';
+    case 'frame-seq':
+      return 'shutter';
+    case 'anaglyph-rc':
+    case 'anaglyph-rc-dubois':
+    case 'anaglyph-gm':
+    case 'anaglyph-amber':
+      return 'anaglyph';
+  }
+}
+export const method = computed<Method>(() => methodOf(encoding.value));
+export function setMethod(m: Method) {
+  switch (m) {
+    case 'split':
+      encoding.value = 'none';
+      break;
+    case 'wiggle':
+      encoding.value = 'wiggle';
+      break;
+    case 'shutter':
+      encoding.value = 'frame-seq';
+      break;
+    case 'anaglyph':
+      // Keep the current anaglyph variant if we're already on one; otherwise
+      // default to red/cyan. Switching away and back doesn't remember the
+      // previous variant — `encoding` is the only source of truth.
+      if (!ANAGLYPH_ENCODINGS.includes(encoding.value)) encoding.value = 'anaglyph-rc';
+      break;
+  }
+}
+
+// Wiggle (a.k.a. wobble / wigglegram) half-period in milliseconds: how long
+// each eye is shown before swapping to the other. ~150ms ≈ 3.3 swaps/sec,
+// the sweet spot where the brain reads parallax as depth without the flicker
+// being distracting. Only used when `encoding === 'wiggle'`.
+export const wiggleMs = persisted<number>('wiggleMs', 150);
 export const sourceMode = persisted<SourceMode>('sourceMode', 'video-only');
 export const correction = persisted<boolean>('correction', true);
 // Head-flip: rotate the full presentation by 180° and swap L/R eye
@@ -70,28 +133,18 @@ export const squeezePct = persisted<number>('squeezePct', 100);
 // double-camera segment without having to scrub manually.
 export const loopOverlap = persisted<boolean>('loopOverlap', false);
 
-// Stereo render of the orbital diagram (sim view). When true, the sim view
-// renders the scene from two slightly offset cameras and pipes both through
-// the StereoRenderer so the geometry is visible in actual 3D depth.
-export const simStereo = persisted<boolean>('simStereo', false);
-
-// Stereo toggle for the introduction view. Default false so the text card
-// is always readable at first; the user opts in to a stereo render of the
-// orbital diagram (and a duplicated card per eye region for sbs/tb
-// layouts) by flipping this. While the introduction is active, simStereo
-// is kept in sync with this signal.
-export const introductionStereo = persisted<boolean>('introductionStereo', false);
-
 // Measured height (CSS px) of the introduction card. Written by the
 // IntroductionView via a ResizeObserver, read by the camera-keyframe
 // pipeline to lift bodies above the card so the card never occludes
 // Earth/Moon.
 export const introductionCardHeight = signal<number>(0);
 
-// Default first-time landing view is the introduction — a guided tour that
-// explains the parallax geometry with a stereo render of the orbital
-// diagram. Returning users land on whichever view they last selected.
-export const view = persisted<View>('view', 'introduction');
+// The app always opens on the stereoscopy view. Which tab the user was last on
+// is intentionally NOT remembered across sessions (every other setting still
+// persists) — a fresh load should greet the visitor with the Moon, not wherever
+// they happened to leave off. The introduction is a dismissible pop-up over the
+// stereo video (see `showIntro`), not a standalone view.
+export const view = signal<View>('stereo');
 export const panelOpen = signal<boolean>(false);
 export const showTelescopes = persisted<boolean>('showTelescopes', true);
 // Per-eye overlay text toggles (stereo view). `showEyeTop` = city name +
@@ -100,18 +153,27 @@ export const showTelescopes = persisted<boolean>('showTelescopes', true);
 export const showEyeTop = persisted<boolean>('showEyeTop', true);
 export const showEyeBottom = persisted<boolean>('showEyeBottom', true);
 
-// Introduction view — a multi-page guided tour explaining the parallax
-// geometry, with the stereo orbital diagram rendered behind the text card.
-// Tied to the 'introduction' value of `view`; the page index is reset to 0
-// each time the user enters the view.
-export const INTRODUCTION_PAGE_COUNT = 4;
+// Introduction — a short guided tour explaining the parallax geometry, shown
+// as a dismissible pop-up (the 2-page card) over the stereo video. `showIntro`
+// controls its visibility: it opens for first-time visitors and is reopenable
+// from the bottom-bar INTRODUCTION button. Not persisted, so each fresh load
+// greets the visitor with the card over the video.
+export const showIntro = signal<boolean>(true);
+export const INTRODUCTION_PAGE_COUNT = 3;
 export const introductionPage = signal<number>(0);
+export function openIntroduction() {
+  introductionPage.value = 0;
+  showIntro.value = true;
+}
+export function closeIntroduction() {
+  showIntro.value = false;
+}
 export function nextIntroductionPage() {
   if (introductionPage.value < INTRODUCTION_PAGE_COUNT - 1) {
     introductionPage.value += 1;
   } else {
-    // ENTER on the last page leaves the introduction for the stereo (videos) view.
-    view.value = 'stereo';
+    // ENTER on the last page dismisses the pop-up, leaving the stereo video.
+    closeIntroduction();
   }
 }
 export function prevIntroductionPage() {

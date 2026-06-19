@@ -1,23 +1,30 @@
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect } from 'preact/hooks';
 import {
-  view,
+  showIntro,
+  closeIntroduction,
   introductionPage,
   INTRODUCTION_PAGE_COUNT,
   nextIntroductionPage,
   prevIntroductionPage,
-  introductionStereo,
-  layout,
-  encoding,
   videosReady,
   loadProgress,
   currentTime,
   isNarrow,
-  introductionCardHeight,
 } from '../state';
 import { computeFrame, AU_TO_KM } from '../astronomy';
+import { IntroDiagram } from './IntroDiagram';
 import type { JSX } from 'preact';
 
 const HEADING_FONT = '"Redaction 35", ui-serif, Georgia, serif';
+const ROOFTOP_BOSTON = '/images/rooftop-boston.jpg';
+const ROOFTOP_SANTIAGO = '/images/rooftop-santiago.jpg';
+
+// Reference links, sourced from the project writeup on yufengzhao.com.
+const PAIK_URL = 'https://njpart.ggcf.kr/collections/215';
+const ECLIPSE_URL = 'https://www.timeanddate.com/eclipse/lunar/2026-march-3';
+const SEESTAR_URL = 'https://www.zwoastro.com/product/seestar-s50/';
+const PIPELINE_URL =
+  'https://github.com/yz3440/earth-is-the-oldeest-stereoscope/tree/main/video-processing';
 
 function vecLengthAU(v: { x: number; y: number; z: number }): number {
   return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
@@ -42,38 +49,17 @@ function PageDots({ count, current }: { count: number; current: number }) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: JSX.Element | string }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 24, padding: '4px 0' }}>
-      <span
-        style={{
-          fontSize: 10,
-          letterSpacing: '0.12em',
-          color: 'var(--text-3)',
-          textTransform: 'uppercase',
-        }}
-      >
-        {label}
-      </span>
-      <span style={{ fontSize: 13, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-type PageContent = { title: JSX.Element; body: JSX.Element };
-
 function titleEl(text: JSX.Element | string): JSX.Element {
   return (
     <div
       style={{
         fontFamily: HEADING_FONT,
         fontWeight: 400,
-        fontSize: 'clamp(20px, 2.4vw, 28px)',
-        lineHeight: 1.1,
+        fontSize: 'clamp(22px, 3vw, 30px)',
+        lineHeight: 1.08,
         letterSpacing: '-0.01em',
         color: 'var(--text)',
+        textWrap: 'balance',
       }}
     >
       {text}
@@ -81,40 +67,45 @@ function titleEl(text: JSX.Element | string): JSX.Element {
   );
 }
 
-function page0Content(): PageContent {
-  return {
-    title: titleEl(
-      <>
-        Earth is the
-        <br />
-        Oldest Stereoscope
-      </>,
-    ),
-    body: (
-      <div style={{ fontSize: 12, lineHeight: 1.55, color: 'var(--text-2)' }}>
-        <p style={{ margin: '0 0 8px' }}>
-          Two telescopes, <span style={{ color: 'var(--text)' }}>Boston</span> and{' '}
-          <span style={{ color: 'var(--text)' }}>Santiago</span>, filmed the Moon
-          simultaneously through the lunar eclipse of 2026&#8209;03&#8209;03.
-        </p>
-        <p style={{ margin: 0, color: 'var(--text-3)' }}>
-          Made by{' '}
-          <a
-            href='https://yufengzhao.com'
-            target='_blank'
-            rel='noreferrer noopener'
-            style={{ color: 'var(--text-2)', textDecoration: 'underline' }}
-          >
-            Yufeng Zhao
-          </a>
-          , with help from Carlos in Chile.
-        </p>
-      </div>
-    ),
-  };
+// Keep a phrase from breaking mid-clause, so a title wraps only at the space
+// between clauses (the comma). Paired with `text-wrap: balance` on the title,
+// this gives: one line when the modal is wide enough, a clean break at the
+// comma when it isn't.
+function noBreak(text: string): JSX.Element {
+  return <span style={{ whiteSpace: 'nowrap' }}>{text}</span>;
 }
 
-function page1Content(): PageContent {
+function Figure({ src, caption }: { src: string; caption: string }) {
+  return (
+    <figure style={{ margin: 0 }}>
+      <img
+        src={src}
+        alt={caption}
+        style={{
+          width: '100%',
+          height: 'auto',
+          display: 'block',
+          border: '1px solid var(--line)',
+        }}
+      />
+      <figcaption
+        style={{
+          fontSize: 10,
+          letterSpacing: '0.04em',
+          color: 'var(--text-3)',
+          marginTop: 4,
+        }}
+      >
+        {caption}
+      </figcaption>
+    </figure>
+  );
+}
+
+// Compact live readout of the one tangible number — how small the Moon's
+// stereo angle is across an Earth-scale baseline. Computed from the current
+// frame so it stays correct wherever the playhead sits.
+function StatRow() {
   const frame = computeFrame(new Date(currentTime.value));
   const baselineKm =
     vecLengthAU({
@@ -124,72 +115,194 @@ function page1Content(): PageContent {
     }) * AU_TO_KM;
   const moonKm = vecLengthAU(frame.moonPos) * AU_TO_KM;
   const parallaxDeg = frame.parallax;
+  const cell = (label: string, value: string) => (
+    <span style={{ whiteSpace: 'nowrap' }}>
+      {label} <span style={{ color: 'var(--text)' }}>{value}</span>
+    </span>
+  );
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 18,
+        flexWrap: 'wrap',
+        fontSize: 11,
+        color: 'var(--text-3)',
+        borderTop: '1px solid var(--line-2)',
+        paddingTop: 8,
+        fontVariantNumeric: 'tabular-nums',
+      }}
+    >
+      {cell('Baseline', `${Math.round(baselineKm).toLocaleString()} km`)}
+      {cell('Moon', `${Math.round(moonKm).toLocaleString()} km`)}
+      {cell('Parallax', `${parallaxDeg.toFixed(2)}°`)}
+    </div>
+  );
+}
+
+const bodyText = {
+  fontSize: 13,
+  lineHeight: 1.6,
+  color: 'var(--text-2)',
+} as const;
+function em(t: string): JSX.Element {
+  return <span style={{ color: 'var(--text)' }}>{t}</span>;
+}
+function A({
+  href,
+  children,
+  italic,
+}: {
+  href: string;
+  children: JSX.Element | string;
+  italic?: boolean;
+}): JSX.Element {
+  return (
+    <a
+      href={href}
+      target='_blank'
+      rel='noreferrer noopener'
+      style={{
+        color: 'var(--text)',
+        textDecoration: 'underline',
+        textUnderlineOffset: 2,
+        fontStyle: italic ? 'italic' : undefined,
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+type PageContent = { title: JSX.Element; body: JSX.Element };
+
+// Page 0 — the concept. The Paik reframe and the homology that gives the
+// piece its title: two people far apart, one Moon, a planet-scale stereoscope.
+function page0Content(): PageContent {
   return {
-    title: titleEl('The Angle'),
+    title: (
+      <>
+        {/* No forced <br>: the title stays on one line when the modal is wide
+            enough and wraps naturally only when it must (e.g. narrow phones). */}
+        {titleEl('Earth is the Oldest Stereoscope')}
+        {/* Plain-language hook under the (deliberately oblique) title — the one
+            line that says what you're actually looking at. */}
+        <div
+          style={{
+            fontSize: 11,
+            letterSpacing: '0.02em',
+            color: 'var(--text-3)',
+            marginTop: 1,
+          }}
+        >
+          A lunar eclipse captured in planetary stereo
+        </div>
+      </>
+    ),
     body: (
-      <div>
-        <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-2)', marginBottom: 8 }}>
-          Stereo depth comes from the angle between two viewpoints. Across an Earth-scale
-          baseline, the Moon&apos;s angle is small.
-        </div>
-        <div style={{ borderTop: '1px solid var(--line-2)', paddingTop: 6, marginBottom: 8 }}>
-          <Stat label='Baseline (Boston ↔ Santiago)' value={`${Math.round(baselineKm).toLocaleString()} km`} />
-          <Stat label='Moon distance' value={`${Math.round(moonKm).toLocaleString()} km`} />
-          <Stat label='Parallax angle' value={`${parallaxDeg.toFixed(2)}°`} />
-        </div>
-        <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--text-3)' }}>
-          Human eyes sit ~6 cm apart and focus at ~25 cm — about 14° of stereo angle. From
-          Earth, the Moon gets ~1°. That&apos;s why the two videos look almost identical.
-        </div>
+      <div style={bodyText}>
+        <IntroDiagram />
+        <p style={{ margin: '0 0 10px' }}>
+          This reframes Nam June Paik's{' '}
+          <A href={PAIK_URL} italic>
+            Moon is the Oldest TV
+          </A>{' '}
+          (1965): Paik turned a natural object into a technical medium, and so
+          does this.
+        </p>
+        <p style={{ margin: 0 }}>
+          When two people are far apart and miss each other, they look up at the
+          same Moon. In that moment they become a pair of eyes separated by half
+          a planet, and the Moon is what their two gazes agree on.{' '}
+          {em('Two viewpoints, one subject, and that is a stereoscope.')}
+        </p>
       </div>
     ),
   };
 }
 
+// Page 1 — the concept made literal: two rooftops, two seasons, one Moon.
+// The photographs carry the human story (and the real imperfection — clouds,
+// snow, a season apart) better than any diagram.
+function page1Content(): PageContent {
+  return {
+    title: titleEl(
+      <>
+        The Moon from {noBreak('Two Hemispheres')}
+      </>,
+    ),
+    body: (
+      <div style={bodyText}>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: isNarrow.value ? '1fr' : '1fr 1fr',
+            gap: 8,
+            margin: '0 0 12px',
+          }}
+        >
+          <Figure
+            src={ROOFTOP_BOSTON}
+            caption='Boston, end of winter — 42.36°N'
+          />
+          <Figure
+            src={ROOFTOP_SANTIAGO}
+            caption='Santiago, late summer — 33.45°S'
+          />
+        </div>
+        <p style={{ margin: '0 0 10px' }}>
+          During the <A href={ECLIPSE_URL}>lunar eclipse of March 2–3, 2026</A>,
+          Carlos and I were separated by a season. His rooftop was summer; mine
+          was still snowed in. We pointed the same{' '}
+          <A href={SEESTAR_URL}>telescope</A> at the same Moon at the same
+          second, about {em('7,800 km')} apart, and brought the two images back
+          together.
+        </p>
+        <p style={{ margin: '0 0 12px' }}>
+          Your eyes are about {em('6 cm')} apart; Boston and Santiago,{' '}
+          {em('7,800 km')}. For these few minutes, you are looking at the Moon
+          {em(' as if your head were the size of the Earth.')}
+        </p>
+        <StatRow />
+      </div>
+    ),
+  };
+}
+
+// Page 2 — the implementation, briefly, and how to actually see the depth.
 function page2Content(): PageContent {
   return {
     title: titleEl(
       <>
-        A Head the
-        <br />
-        Size of Earth
+        {noBreak('Perspective Calibration,')} {noBreak('Stereo Viewing')}
       </>,
     ),
     body: (
-      <div>
-        <div style={{ fontSize: 12, lineHeight: 1.55, color: 'var(--text-2)', marginBottom: 6 }}>
-          The diagram behind this card is rendered in stereo as if your head were
-          Earth-sized — about 2,500 km between the eyes.
-        </div>
-        <div style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--text-3)' }}>
-          At that scale the Moon is close enough to fuse, and the orbital geometry pops into
-          actual depth. The Sun is much further away, so it sits flat on the horizon of
-          infinity.
-        </div>
-      </div>
-    ),
-  };
-}
-
-function page3Content(): PageContent {
-  return {
-    title: titleEl('How to See It'),
-    body: (
-      <div style={{ fontSize: 12, lineHeight: 1.55, color: 'var(--text-2)' }}>
-        <div>
-          <span style={{ color: 'var(--text)' }}>TAB</span> &nbsp;swap between the telescope
-          videos and the simulation.
-        </div>
-        <div>
-          <span style={{ color: 'var(--text)' }}>SPACE</span> &nbsp;play / pause.
-        </div>
-        <div>
-          <span style={{ color: 'var(--text)' }}>H</span> &nbsp;flip the head — for
-          upside-down headsets or lying on your back.
-        </div>
-        <div>
-          <span style={{ color: 'var(--text)' }}>F</span> &nbsp;fullscreen.
-        </div>
+      <div style={bodyText}>
+        <p style={{ margin: '0 0 10px' }}>
+          Each telescope tracks the Moon as it crosses the sky, so every frame
+          is <A href={PIPELINE_URL}>stabilized, derotated, and aligned</A> to a
+          single shared {em('Boston–Santiago baseline')}, because that's the
+          only way two eyes can fuse the pair. Your browser redoes that
+          alignment on the fly, in a shader.
+        </p>
+        <p style={{ margin: '0 0 10px' }}>
+          The pair sits {em('side by side')} — Boston on the left, Santiago on
+          the right, the way a stereoscope holds two photographs. To find the
+          depth, {em('relax or cross your eyes')} until the two Moons slide
+          together into one, or look through a stereoscope or Cardboard viewer.
+        </p>
+        {/* <div style={{ marginBottom: 4 }}>
+          {em('← →')} scrub &nbsp;·&nbsp; {em('SPACE')} play / pause
+          &nbsp;·&nbsp; {em('F')} fullscreen
+        </div> */}
+        <p style={{ margin: '8px 0 0', color: 'var(--text-3)' }}>
+          Can't fuse it? Open {em('CONTROLS')} and switch to {em('wiggle')}: the
+          two views flip back and forth a few times a second, and your eye reads
+          that as depth. {em('CONTROLS')} also has anaglyph (colored glasses)
+          and shutter, which I run on a DLP 3D projector with active glasses in
+          the installation.
+        </p>
       </div>
     ),
   };
@@ -202,10 +315,8 @@ function pageContent(page: number): PageContent {
     case 1:
       return page1Content();
     case 2:
-      return page2Content();
-    case 3:
     default:
-      return page3Content();
+      return page2Content();
   }
 }
 
@@ -213,87 +324,48 @@ function IntroductionCard({
   page,
   ready,
   progress,
-  enterDisabled,
   isLast,
-  stereoOn,
-  cardWidth,
-  measureHeight,
 }: {
   page: number;
   ready: boolean;
   progress: number;
-  enterDisabled: boolean;
   isLast: boolean;
-  stereoOn: boolean;
-  cardWidth: string;
-  // When true, this card publishes its height to `introductionCardHeight`
-  // so the camera framing can lift bodies above it. Only one card in the
-  // stereo-duplicated layout should set this — both have identical
-  // content, so one measurement is enough.
-  measureHeight: boolean;
 }) {
-  // Two-column (title left, body right) when the card is wide enough —
-  // i.e., the user is on a non-stereo single card on a desktop viewport.
-  // Stereo mode duplicates the card per eye region (each is half the
-  // viewport width), and narrow viewports collapse anyway, so both fall
-  // back to a single column.
-  const twoColumn = !stereoOn && !isNarrow.value;
   const { title, body } = pageContent(page);
-
-  const cardRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!measureHeight || !cardRef.current) return;
-    const el = cardRef.current;
-    const ro = new ResizeObserver((entries) => {
-      for (const e of entries) {
-        introductionCardHeight.value = e.contentRect.height;
-      }
-    });
-    ro.observe(el);
-    introductionCardHeight.value = el.getBoundingClientRect().height;
-    return () => {
-      ro.disconnect();
-      // Don't clear the signal on unmount — the next mount's measurement
-      // takes over and clearing here would briefly drop the camera bias
-      // during a remount.
-    };
-  }, [measureHeight]);
 
   return (
     <div
-      ref={cardRef}
       style={{
+        position: 'relative',
         pointerEvents: 'auto',
-        width: cardWidth,
-        padding: '16px 22px 14px',
-        background: 'rgba(0,0,0,0.78)',
+        width: 'min(600px, calc(100vw - 32px))',
+        maxHeight: 'calc(100dvh - 132px)',
+        overflowY: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 14,
+        padding: '22px 24px 16px',
+        background: 'rgba(0,0,0,0.82)',
         border: '1px solid var(--line)',
-        boxShadow: '0 -10px 40px rgba(0,0,0,0.5)',
-        backdropFilter: 'blur(10px)',
-        WebkitBackdropFilter: 'blur(10px)',
+        boxShadow: '0 12px 50px rgba(0,0,0,0.6)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
       }}
     >
+      {title}
+      <div style={{ borderTop: '1px solid var(--line-2)' }} />
+      {body}
+
       <div
         style={{
-          display: 'flex',
-          flexDirection: twoColumn ? 'row' : 'column',
-          gap: twoColumn ? 22 : 10,
-          alignItems: 'flex-start',
+          paddingTop: 12,
+          marginTop: 'auto',
+          borderTop: '1px solid var(--line-2)',
         }}
       >
-        <div
-          style={{
-            flex: twoColumn ? '0 0 200px' : '0 0 auto',
-            paddingRight: twoColumn ? 22 : 0,
-            borderRight: twoColumn ? '1px solid var(--line-2)' : 'none',
-          }}
-        >
-          {title}
-        </div>
-        <div style={{ flex: '1 1 auto', minWidth: 0 }}>{body}</div>
-      </div>
-
-      <div style={{ paddingTop: 12, marginTop: 12, borderTop: '1px solid var(--line-2)' }}>
+        {/* Ambient load progress — never blocks ENTER. Entering before the
+            videos finish just shows the loading placeholder in the stereo
+            view, then auto-plays once ready. */}
         {!ready && (
           <div
             style={{
@@ -324,23 +396,26 @@ function IntroductionCard({
             flexWrap: 'wrap',
           }}
         >
-          <PageDots count={INTRODUCTION_PAGE_COUNT} current={page} />
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+            <PageDots count={INTRODUCTION_PAGE_COUNT} current={page} />
             <button
               type='button'
-              onClick={() => (introductionStereo.value = !stereoOn)}
+              onClick={closeIntroduction}
               style={{
-                padding: '6px 12px',
+                padding: '4px 8px',
                 fontSize: 10,
                 letterSpacing: '0.18em',
-                border: `1px solid ${stereoOn ? 'var(--text-2)' : 'var(--line)'}`,
-                color: stereoOn ? 'var(--text)' : 'var(--text-3)',
-                background: stereoOn ? 'var(--accent-fill)' : 'transparent',
+                border: 'none',
+                background: 'transparent',
+                color: 'var(--text-3)',
+                cursor: 'pointer',
               }}
-              title='Render the orbital diagram in stereo (duplicates this card per eye)'
+              title='Skip the intro (Esc)'
             >
-              STEREO {stereoOn ? '·' : ''}
+              SKIP
             </button>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button
               type='button'
               onClick={prevIntroductionPage}
@@ -358,24 +433,17 @@ function IntroductionCard({
             </button>
             <button
               type='button'
-              onClick={enterDisabled ? undefined : nextIntroductionPage}
-              disabled={enterDisabled}
+              onClick={nextIntroductionPage}
               style={{
                 padding: '6px 18px',
                 fontSize: 11,
                 letterSpacing: '0.18em',
-                border: `1px solid ${enterDisabled ? 'var(--line-2)' : 'var(--text-2)'}`,
-                color: enterDisabled ? 'var(--text-3)' : 'var(--text)',
-                cursor: enterDisabled ? 'default' : 'pointer',
+                border: '1px solid var(--text-2)',
+                color: 'var(--text)',
+                cursor: 'pointer',
               }}
             >
-              {isLast
-                ? ready
-                  ? 'ENTER'
-                  : progress >= 1
-                    ? 'DECODING…'
-                    : `LOADING ${Math.floor(progress * 100)}%`
-                : 'NEXT'}
+              {isLast ? 'ENTER' : 'NEXT'}
             </button>
           </div>
         </div>
@@ -384,107 +452,12 @@ function IntroductionCard({
   );
 }
 
-// Slot positioning. Each slot fixes a sub-region of the viewport that the
-// card is centered into. Used to mirror the card per eye when the stereo
-// pair splits the viewport into halves.
-type Slot = {
-  // CSS positioning style for the outer flex container.
-  top?: string;
-  bottom?: string;
-  left?: string;
-  right?: string;
-  height?: string;
-  width?: string;
-  // Card width inside that slot.
-  cardWidth: string;
-  // Vertical alignment within the slot — we want the card pinned to the
-  // bottom of each eye region so the geometry above it stays unobstructed.
-  alignItems: 'flex-end';
-};
-
-function slotsForPair(stereoOn: boolean): Slot[] {
-  // Mono: single full-width slot, card pinned to the bottom of the screen.
-  if (!stereoOn) {
-    return [
-      {
-        left: '0',
-        right: '0',
-        bottom: '0',
-        height: 'auto',
-        cardWidth: 'min(720px, calc(100vw - 32px))',
-        alignItems: 'flex-end',
-      },
-    ];
-  }
-  const enc = encoding.value;
-  // Anaglyph and frame-seq don't split the viewport spatially — a single
-  // card overlaid on top of the composite is still readable, so don't
-  // duplicate.
-  if (enc !== 'none') {
-    return [
-      {
-        left: '0',
-        right: '0',
-        bottom: '0',
-        height: 'auto',
-        cardWidth: 'min(720px, calc(100vw - 32px))',
-        alignItems: 'flex-end',
-      },
-    ];
-  }
-  const lay = layout.value;
-  if (lay === 'sbs-half' || lay === 'sbs-full') {
-    // Side-by-side: viewport split horizontally. Two cards pinned to the
-    // bottom of each half.
-    return [
-      {
-        left: '0',
-        width: '50vw',
-        bottom: '0',
-        height: 'auto',
-        cardWidth: 'min(360px, calc(50vw - 32px))',
-        alignItems: 'flex-end',
-      },
-      {
-        left: '50vw',
-        width: '50vw',
-        bottom: '0',
-        height: 'auto',
-        cardWidth: 'min(360px, calc(50vw - 32px))',
-        alignItems: 'flex-end',
-      },
-    ];
-  }
-  // Top-bottom: viewport split vertically. Pin one card to the bottom of
-  // the top half, one to the bottom of the bottom half.
-  return [
-    {
-      left: '0',
-      right: '0',
-      top: '0',
-      height: '50dvh',
-      cardWidth: 'min(440px, calc(100vw - 32px))',
-      alignItems: 'flex-end',
-    },
-    {
-      left: '0',
-      right: '0',
-      top: '50dvh',
-      height: '50dvh',
-      cardWidth: 'min(440px, calc(100vw - 32px))',
-      alignItems: 'flex-end',
-    },
-  ];
-}
-
 export function IntroductionView() {
-  const active = view.value === 'introduction';
+  const active = showIntro.value;
   const page = introductionPage.value;
   const ready = videosReady.value;
   const progress = loadProgress.value;
   const isLast = page >= INTRODUCTION_PAGE_COUNT - 1;
-  const enterDisabled = isLast && !ready;
-  const stereoOn = introductionStereo.value;
 
   useEffect(() => {
     if (!active) return;
@@ -493,11 +466,10 @@ export function IntroductionView() {
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
       if (e.key === 'Escape') {
         e.preventDefault();
-        view.value = 'stereo';
+        closeIntroduction();
         return;
       }
       if (e.key === 'ArrowRight' || e.key === 'Enter') {
-        if (isLast && !ready) return;
         e.preventDefault();
         nextIntroductionPage();
         return;
@@ -509,46 +481,42 @@ export function IntroductionView() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [active, isLast, ready]);
+  }, [active]);
 
   if (!active) return null;
 
-  // Read layout/encoding inside render so stereo slot updates reactively.
-  const slots = slotsForPair(stereoOn);
-
+  // Centered modal card over the stereo video. A faint scrim lifts text
+  // contrast over the Moon footage without hiding it; the card itself scrolls
+  // if the content is taller than the viewport (e.g. the rooftops page on a
+  // short screen).
   return (
-    <>
-      {slots.map((slot, i) => (
-        <div
-          key={i}
-          style={{
-            position: 'fixed',
-            zIndex: 100,
-            pointerEvents: 'none',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: slot.alignItems,
-            padding: '0 16px 80px',
-            top: slot.top,
-            bottom: slot.bottom,
-            left: slot.left,
-            right: slot.right,
-            width: slot.width,
-            height: slot.height,
-          }}
-        >
-          <IntroductionCard
-            page={page}
-            ready={ready}
-            progress={progress}
-            enterDisabled={enterDisabled}
-            isLast={isLast}
-            stereoOn={stereoOn}
-            cardWidth={slot.cardWidth}
-            measureHeight={i === 0}
-          />
-        </div>
-      ))}
-    </>
+    <div
+      style={{
+        position: 'fixed',
+        zIndex: 100,
+        inset: 0,
+        pointerEvents: 'none',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: '24px 16px 72px',
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background:
+            'radial-gradient(120% 90% at 50% 45%, rgba(0,0,0,0.55), rgba(0,0,0,0.32))',
+          pointerEvents: 'none',
+        }}
+      />
+      <IntroductionCard
+        page={page}
+        ready={ready}
+        progress={progress}
+        isLast={isLast}
+      />
+    </div>
   );
 }

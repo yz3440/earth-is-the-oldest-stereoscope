@@ -3,24 +3,25 @@
 //   - horizontal: inside the desktop controls bar above BottomBar
 // Both share the same signals and input elements; only layout differs.
 
-import { layout, encoding, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom, simStereo, introductionStereo, loopOverlap, squeezePct } from '../state';
-import type { Layout, Encoding, SourceMode } from '../state';
+import { layout, encoding, method, setMethod, ANAGLYPH_ENCODINGS, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom, loopOverlap, squeezePct, wiggleMs } from '../state';
+import type { Layout, Encoding, Method, SourceMode } from '../state';
 import { TooltipLabel } from './Tooltip';
 
 type Orientation = 'vertical' | 'horizontal';
 
 const TOOLTIPS = {
+  METHOD: 'How to view the stereo pair: side-by-side (a stereoscope / cross-eye), wiggle (alternates the two views — depth with no glasses), anaglyph (colored glasses), or shutter (DLP shutter glasses).',
   LAYOUT: 'How the two eye images are arranged on screen (side-by-side or top-bottom, full or half width).',
-  ENCODING: 'How the stereo pair is combined for viewing: anaglyph (colored glasses), frame-sequential (shutter glasses), or none (raw).',
+  COLOR: 'Which color-channel split the anaglyph uses — match your glasses (red/cyan, green/magenta, or amber/blue).',
   SOURCE: 'Show the captured telescope video, or the 3D simulation instead.',
   CORRECTION: 'Rotate each eye image so the stereo baseline is horizontal (uses telescope orientation data).',
   'FLIP HEAD': 'Flip the view 180° and swap eyes — useful for lying on your back or upside-down headsets.',
   PARALLAX: 'Horizontal shift between eyes in pixels — adjusts perceived depth.',
+  WIGGLE: 'How fast the two views alternate, in milliseconds per view. Lower = faster wobble.',
   'TOP TEXT': 'Show the city name, coordinates, and local time block at the top of each eye.',
   'BOT TEXT': 'Show the weather, UTC time, and eclipse phase block at the bottom of each eye.',
   TELESCOPES: 'Show or hide the telescope grid overlay in the 3D scene.',
   FOCUS: 'Center the 3D camera on the full system, Earth, or the Moon.',
-  STEREO: 'Render the orbital diagram in stereo using the current layout and encoding — like wearing 3D glasses sized to Earth.',
   LOOP: 'Loop playback between the start and end of the Boston/Santiago overlap window.',
   SQUEEZE: 'Horizontally squeeze (>100%) or stretch (<100%) each eye image — useful when the downstream display alters aspect ratio (e.g. half-SBS 3D TVs).',
 } as const;
@@ -81,14 +82,23 @@ const LAYOUT_OPTS: { v: Layout; l: string }[] = [
   { v: 'tb-half',  l: 'tb-half'  },
   { v: 'tb-full',  l: 'tb-full'  },
 ];
-const ENCODING_OPTS: { v: Encoding; l: string }[] = [
-  { v: 'none',               l: 'none (raw stereo)' },
-  { v: 'anaglyph-rc',        l: 'anaglyph r/c'      },
-  { v: 'anaglyph-rc-dubois', l: 'anaglyph r/c dubois' },
-  { v: 'anaglyph-gm',        l: 'anaglyph g/m'      },
-  { v: 'anaglyph-amber',     l: 'anaglyph amber'    },
-  { v: 'frame-seq',          l: 'frame-seq (DLP)'   },
+// Primary viewing-method choice. Each method maps to an `encoding` via
+// setMethod(); the matching secondary control (LAYOUT / WIGGLE / COLOR) is shown
+// contextually below. `split` is the raw stereo pair (side-by-side label, but
+// LAYOUT also offers top-bottom).
+const METHOD_OPTS: { v: Method; l: string }[] = [
+  { v: 'split',    l: 'side-by-side'        },
+  { v: 'wiggle',   l: 'wiggle (no glasses)' },
+  { v: 'anaglyph', l: 'anaglyph (glasses)'  },
+  { v: 'shutter',  l: 'shutter (DLP)'       },
 ];
+// Friendly labels for the anaglyph color variants (the COLOR sub-control).
+const ANAGLYPH_LABELS: Partial<Record<Encoding, string>> = {
+  'anaglyph-rc': 'red / cyan',
+  'anaglyph-rc-dubois': 'red / cyan (dubois)',
+  'anaglyph-gm': 'green / magenta',
+  'anaglyph-amber': 'amber / blue',
+};
 const SOURCE_OPTS: { v: SourceMode; l: string }[] = [
   { v: 'video-only', l: 'VIDEO' },
   { v: 'sim-only',   l: 'SIM'   },
@@ -105,13 +115,26 @@ function LayoutSelect() {
   );
 }
 
-function EncodingSelect() {
+function MethodSelect() {
+  return (
+    <select
+      value={method.value}
+      onChange={(e) => setMethod((e.target as HTMLSelectElement).value as Method)}
+    >
+      {METHOD_OPTS.map((o) => (<option value={o.v}>{o.l}</option>))}
+    </select>
+  );
+}
+
+// COLOR sub-control — shown only for the anaglyph method. Writes the concrete
+// anaglyph variant straight to `encoding`.
+function AnaglyphSelect() {
   return (
     <select
       value={encoding.value}
       onChange={(e) => (encoding.value = (e.target as HTMLSelectElement).value as Encoding)}
     >
-      {ENCODING_OPTS.map((o) => (<option value={o.v}>{o.l}</option>))}
+      {ANAGLYPH_ENCODINGS.map((v) => (<option value={v}>{ANAGLYPH_LABELS[v]}</option>))}
     </select>
   );
 }
@@ -195,6 +218,34 @@ function SqueezeSlider({ width = 100 }: { width?: number }) {
   );
 }
 
+// Wiggle speed: ms each eye is shown before swapping. Lower = faster wobble.
+function WiggleSlider({ width = 100 }: { width?: number }) {
+  return (
+    <div class="flex items-center gap-2">
+      <input
+        type="range"
+        min={80}
+        max={400}
+        step={10}
+        value={wiggleMs.value}
+        onInput={(e) => (wiggleMs.value = parseInt((e.target as HTMLInputElement).value))}
+        style={{ width }}
+      />
+      <span style={{ fontSize: 11, opacity: 0.7, minWidth: 44, textAlign: 'right' }}>
+        {wiggleMs.value}ms
+      </span>
+      <button
+        type="button"
+        onClick={() => (wiggleMs.value = 150)}
+        style={{ padding: '2px 6px', fontSize: 10, opacity: 0.7 }}
+        title="Reset wiggle speed to 150ms"
+      >
+        reset
+      </button>
+    </div>
+  );
+}
+
 function FocusButtons({ flex = 1 }: { flex?: number | string }) {
   return (
     <div class="flex gap-1">
@@ -235,8 +286,16 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
   if (orientation === 'vertical') {
     return (
       <>
-        <VRow label="LAYOUT"><LayoutSelect /></VRow>
-        <VRow label="ENCODING"><EncodingSelect /></VRow>
+        <VRow label="METHOD"><MethodSelect /></VRow>
+        {method.value === 'split' && (
+          <VRow label="LAYOUT"><LayoutSelect /></VRow>
+        )}
+        {method.value === 'wiggle' && (
+          <VRow label="WIGGLE"><WiggleSlider width={100} /></VRow>
+        )}
+        {method.value === 'anaglyph' && (
+          <VRow label="COLOR"><AnaglyphSelect /></VRow>
+        )}
         <VRow label="SOURCE"><SourceToggle /></VRow>
         <VRow label="CORRECTION">
           <Switch checked={correction.value} onToggle={() => (correction.value = !correction.value)} />
@@ -261,8 +320,16 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
 
   return (
     <>
-      <HCell label="LAYOUT"><LayoutSelect /></HCell>
-      <HCell label="ENCODING"><EncodingSelect /></HCell>
+      <HCell label="METHOD"><MethodSelect /></HCell>
+      {method.value === 'split' && (
+        <HCell label="LAYOUT"><LayoutSelect /></HCell>
+      )}
+      {method.value === 'wiggle' && (
+        <HCell label="WIGGLE"><WiggleSlider width={120} /></HCell>
+      )}
+      {method.value === 'anaglyph' && (
+        <HCell label="COLOR"><AnaglyphSelect /></HCell>
+      )}
       <HCell label="SOURCE"><SourceToggle /></HCell>
       <HCell label="CORRECTION">
         <Switch checked={correction.value} onToggle={() => (correction.value = !correction.value)} />
@@ -291,16 +358,6 @@ export function SimControls({ orientation }: { orientation: Orientation }) {
   if (orientation === 'vertical') {
     return (
       <>
-        <VRow label="STEREO">
-          <Switch checked={simStereo.value} onToggle={() => (simStereo.value = !simStereo.value)} />
-        </VRow>
-        {simStereo.value && (
-          <>
-            <VRow label="LAYOUT"><LayoutSelect /></VRow>
-            <VRow label="ENCODING"><EncodingSelect /></VRow>
-            <VRow label="SQUEEZE"><SqueezeSlider width={100} /></VRow>
-          </>
-        )}
         <VRow label="FLIP HEAD">
           <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
         </VRow>
@@ -322,16 +379,6 @@ export function SimControls({ orientation }: { orientation: Orientation }) {
 
   return (
     <>
-      <HCell label="STEREO">
-        <Switch checked={simStereo.value} onToggle={() => (simStereo.value = !simStereo.value)} />
-      </HCell>
-      {simStereo.value && (
-        <>
-          <HCell label="LAYOUT"><LayoutSelect /></HCell>
-          <HCell label="ENCODING"><EncodingSelect /></HCell>
-          <HCell label="SQUEEZE"><SqueezeSlider width={120} /></HCell>
-        </>
-      )}
       <HCell label="FLIP HEAD">
         <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
       </HCell>
@@ -346,50 +393,23 @@ export function SimControls({ orientation }: { orientation: Orientation }) {
   );
 }
 
-// Controls relevant to the introduction view. Most stereo (videos) settings
-// don't apply here — there is no video source to swap, no per-frame angle
-// correction, no per-eye text overlay. We expose only the knobs that
-// actually change what the user sees: stereo on/off, layout/encoding when
-// stereo is on, flip-head for upside-down headsets, and parallax shift.
+// Controls relevant to the introduction view. The diagram is mono and there's
+// no video source here, so the only knob that changes what the user sees is
+// flip-head (for upside-down headsets / lying on your back).
 export function IntroductionControls({ orientation }: { orientation: Orientation }) {
   if (view.value !== 'introduction') return null;
-  const stereoOn = introductionStereo.value;
 
   if (orientation === 'vertical') {
     return (
-      <>
-        <VRow label="STEREO">
-          <Switch checked={stereoOn} onToggle={() => (introductionStereo.value = !stereoOn)} />
-        </VRow>
-        {stereoOn && (
-          <>
-            <VRow label="LAYOUT"><LayoutSelect /></VRow>
-            <VRow label="ENCODING"><EncodingSelect /></VRow>
-            <VRow label="PARALLAX"><ParallaxSlider width={100} /></VRow>
-          </>
-        )}
-        <VRow label="FLIP HEAD">
-          <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
-        </VRow>
-      </>
+      <VRow label="FLIP HEAD">
+        <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
+      </VRow>
     );
   }
 
   return (
-    <>
-      <HCell label="STEREO">
-        <Switch checked={stereoOn} onToggle={() => (introductionStereo.value = !stereoOn)} />
-      </HCell>
-      {stereoOn && (
-        <>
-          <HCell label="LAYOUT"><LayoutSelect /></HCell>
-          <HCell label="ENCODING"><EncodingSelect /></HCell>
-          <HCell label="PARALLAX"><ParallaxSlider width={120} /></HCell>
-        </>
-      )}
-      <HCell label="FLIP HEAD">
-        <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
-      </HCell>
-    </>
+    <HCell label="FLIP HEAD">
+      <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
+    </HCell>
   );
 }

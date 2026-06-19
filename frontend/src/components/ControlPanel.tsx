@@ -3,15 +3,16 @@
 //   - horizontal: inside the desktop controls bar above BottomBar
 // Both share the same signals and input elements; only layout differs.
 
-import { layout, encoding, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom, loopOverlap, squeezePct, wiggleMs } from '../state';
-import type { Layout, Encoding, SourceMode } from '../state';
+import { layout, encoding, method, setMethod, ANAGLYPH_ENCODINGS, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom, loopOverlap, squeezePct, wiggleMs } from '../state';
+import type { Layout, Encoding, Method, SourceMode } from '../state';
 import { TooltipLabel } from './Tooltip';
 
 type Orientation = 'vertical' | 'horizontal';
 
 const TOOLTIPS = {
+  METHOD: 'How to view the stereo pair: side-by-side (a stereoscope / cross-eye), wiggle (alternates the two views — depth with no glasses), anaglyph (colored glasses), or shutter (DLP shutter glasses).',
   LAYOUT: 'How the two eye images are arranged on screen (side-by-side or top-bottom, full or half width).',
-  ENCODING: 'How the stereo pair is shown: wiggle (alternates the two views — depth with no glasses), anaglyph (colored glasses), frame-sequential (shutter glasses), or none (raw side-by-side for a stereoscope / cross-eye).',
+  COLOR: 'Which color-channel split the anaglyph uses — match your glasses (red/cyan, green/magenta, or amber/blue).',
   SOURCE: 'Show the captured telescope video, or the 3D simulation instead.',
   CORRECTION: 'Rotate each eye image so the stereo baseline is horizontal (uses telescope orientation data).',
   'FLIP HEAD': 'Flip the view 180° and swap eyes — useful for lying on your back or upside-down headsets.',
@@ -81,15 +82,23 @@ const LAYOUT_OPTS: { v: Layout; l: string }[] = [
   { v: 'tb-half',  l: 'tb-half'  },
   { v: 'tb-full',  l: 'tb-full'  },
 ];
-const ENCODING_OPTS: { v: Encoding; l: string }[] = [
-  { v: 'wiggle',             l: 'wiggle (no glasses)' },
-  { v: 'none',               l: 'none (raw stereo)' },
-  { v: 'anaglyph-rc',        l: 'anaglyph r/c'      },
-  { v: 'anaglyph-rc-dubois', l: 'anaglyph r/c dubois' },
-  { v: 'anaglyph-gm',        l: 'anaglyph g/m'      },
-  { v: 'anaglyph-amber',     l: 'anaglyph amber'    },
-  { v: 'frame-seq',          l: 'frame-seq (DLP)'   },
+// Primary viewing-method choice. Each method maps to an `encoding` via
+// setMethod(); the matching secondary control (LAYOUT / WIGGLE / COLOR) is shown
+// contextually below. `split` is the raw stereo pair (side-by-side label, but
+// LAYOUT also offers top-bottom).
+const METHOD_OPTS: { v: Method; l: string }[] = [
+  { v: 'split',    l: 'side-by-side'        },
+  { v: 'wiggle',   l: 'wiggle (no glasses)' },
+  { v: 'anaglyph', l: 'anaglyph (glasses)'  },
+  { v: 'shutter',  l: 'shutter (DLP)'       },
 ];
+// Friendly labels for the anaglyph color variants (the COLOR sub-control).
+const ANAGLYPH_LABELS: Partial<Record<Encoding, string>> = {
+  'anaglyph-rc': 'red / cyan',
+  'anaglyph-rc-dubois': 'red / cyan (dubois)',
+  'anaglyph-gm': 'green / magenta',
+  'anaglyph-amber': 'amber / blue',
+};
 const SOURCE_OPTS: { v: SourceMode; l: string }[] = [
   { v: 'video-only', l: 'VIDEO' },
   { v: 'sim-only',   l: 'SIM'   },
@@ -106,13 +115,26 @@ function LayoutSelect() {
   );
 }
 
-function EncodingSelect() {
+function MethodSelect() {
+  return (
+    <select
+      value={method.value}
+      onChange={(e) => setMethod((e.target as HTMLSelectElement).value as Method)}
+    >
+      {METHOD_OPTS.map((o) => (<option value={o.v}>{o.l}</option>))}
+    </select>
+  );
+}
+
+// COLOR sub-control — shown only for the anaglyph method. Writes the concrete
+// anaglyph variant straight to `encoding`.
+function AnaglyphSelect() {
   return (
     <select
       value={encoding.value}
       onChange={(e) => (encoding.value = (e.target as HTMLSelectElement).value as Encoding)}
     >
-      {ENCODING_OPTS.map((o) => (<option value={o.v}>{o.l}</option>))}
+      {ANAGLYPH_ENCODINGS.map((v) => (<option value={v}>{ANAGLYPH_LABELS[v]}</option>))}
     </select>
   );
 }
@@ -264,10 +286,15 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
   if (orientation === 'vertical') {
     return (
       <>
-        <VRow label="LAYOUT"><LayoutSelect /></VRow>
-        <VRow label="ENCODING"><EncodingSelect /></VRow>
-        {encoding.value === 'wiggle' && (
+        <VRow label="METHOD"><MethodSelect /></VRow>
+        {method.value === 'split' && (
+          <VRow label="LAYOUT"><LayoutSelect /></VRow>
+        )}
+        {method.value === 'wiggle' && (
           <VRow label="WIGGLE"><WiggleSlider width={100} /></VRow>
+        )}
+        {method.value === 'anaglyph' && (
+          <VRow label="COLOR"><AnaglyphSelect /></VRow>
         )}
         <VRow label="SOURCE"><SourceToggle /></VRow>
         <VRow label="CORRECTION">
@@ -293,10 +320,15 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
 
   return (
     <>
-      <HCell label="LAYOUT"><LayoutSelect /></HCell>
-      <HCell label="ENCODING"><EncodingSelect /></HCell>
-      {encoding.value === 'wiggle' && (
+      <HCell label="METHOD"><MethodSelect /></HCell>
+      {method.value === 'split' && (
+        <HCell label="LAYOUT"><LayoutSelect /></HCell>
+      )}
+      {method.value === 'wiggle' && (
         <HCell label="WIGGLE"><WiggleSlider width={120} /></HCell>
+      )}
+      {method.value === 'anaglyph' && (
+        <HCell label="COLOR"><AnaglyphSelect /></HCell>
       )}
       <HCell label="SOURCE"><SourceToggle /></HCell>
       <HCell label="CORRECTION">

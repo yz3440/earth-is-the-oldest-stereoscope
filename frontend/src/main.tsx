@@ -862,16 +862,12 @@ document.addEventListener('keydown', (e) => {
   const tag = (e.target as HTMLElement).tagName;
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
 
+  // Only three shortcuts, deliberately: F (fullscreen), Space (play/pause),
+  // and ←/→ (scrub). The control-panel toggles (correction, flip, rate, view
+  // switch) are mouse-only — keyboard chords for them added clutter without
+  // much value. F stays above the intro/loading guards so it works anywhere.
   if (e.key === 'f') {
     toggleFullscreen();
-    return;
-  }
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    const order: typeof view.value[] = ['stereo', 'sim'];
-    const dir = e.shiftKey ? -1 : 1;
-    const idx = order.indexOf(view.value);
-    view.value = order[(idx + dir + order.length) % order.length];
     return;
   }
   // While the introduction pop-up is open, swallow playback shortcuts so the
@@ -890,11 +886,5 @@ document.addEventListener('keydown', (e) => {
       SIM_START.getTime(),
       SIM_END.getTime(),
     );
-  } else if (e.key === '[')
-    rateIdx.value = clamp(rateIdx.value - 1, 0, RATE_STEPS.length - 1);
-  else if (e.key === ']')
-    rateIdx.value = clamp(rateIdx.value + 1, 0, RATE_STEPS.length - 1);
-  else if (e.key === '0') rateIdx.value = DEFAULT_RATE_INDEX;
-  else if (e.key === 'c') correction.value = !correction.value;
-  else if (e.key === 'h') flipHead.value = !flipHead.value;
+  }
 });

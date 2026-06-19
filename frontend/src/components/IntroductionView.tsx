@@ -12,6 +12,7 @@ import {
   isNarrow,
 } from '../state';
 import { computeFrame, AU_TO_KM } from '../astronomy';
+import { IntroDiagram } from './IntroDiagram';
 import type { JSX } from 'preact';
 
 const HEADING_FONT = '"Redaction 35", ui-serif, Georgia, serif';
@@ -21,6 +22,7 @@ const ROOFTOP_SANTIAGO = '/images/rooftop-santiago.jpg';
 // Reference links, sourced from the project writeup on yufengzhao.com.
 const PAIK_URL = 'https://njpart.ggcf.kr/collections/215';
 const ECLIPSE_URL = 'https://www.timeanddate.com/eclipse/lunar/2026-march-3';
+const SEESTAR_URL = 'https://www.zwoastro.com/product/seestar-s50/';
 const PIPELINE_URL =
   'https://github.com/yz3440/earth-is-the-oldeest-stereoscope/tree/main/video-processing';
 
@@ -57,11 +59,20 @@ function titleEl(text: JSX.Element | string): JSX.Element {
         lineHeight: 1.08,
         letterSpacing: '-0.01em',
         color: 'var(--text)',
+        textWrap: 'balance',
       }}
     >
       {text}
     </div>
   );
+}
+
+// Keep a phrase from breaking mid-clause, so a title wraps only at the space
+// between clauses (the comma). Paired with `text-wrap: balance` on the title,
+// this gives: one line when the modal is wide enough, a clean break at the
+// comma when it isn't.
+function noBreak(text: string): JSX.Element {
+  return <span style={{ whiteSpace: 'nowrap' }}>{text}</span>;
 }
 
 function Figure({ src, caption }: { src: string; caption: string }) {
@@ -129,7 +140,11 @@ function StatRow() {
   );
 }
 
-const bodyText = { fontSize: 13, lineHeight: 1.6, color: 'var(--text-2)' } as const;
+const bodyText = {
+  fontSize: 13,
+  lineHeight: 1.6,
+  color: 'var(--text-2)',
+} as const;
 function em(t: string): JSX.Element {
   return <span style={{ color: 'var(--text)' }}>{t}</span>;
 }
@@ -165,26 +180,41 @@ type PageContent = { title: JSX.Element; body: JSX.Element };
 // piece its title: two people far apart, one Moon, a planet-scale stereoscope.
 function page0Content(): PageContent {
   return {
-    title: titleEl(
+    title: (
       <>
-        Earth is the
-        <br />
-        Oldest Stereoscope
-      </>,
+        {/* No forced <br>: the title stays on one line when the modal is wide
+            enough and wraps naturally only when it must (e.g. narrow phones). */}
+        {titleEl('Earth is the Oldest Stereoscope')}
+        {/* Plain-language hook under the (deliberately oblique) title — the one
+            line that says what you're actually looking at. */}
+        <div
+          style={{
+            fontSize: 11,
+            letterSpacing: '0.02em',
+            color: 'var(--text-3)',
+            marginTop: 1,
+          }}
+        >
+          A lunar eclipse captured in planetary stereo
+        </div>
+      </>
     ),
     body: (
       <div style={bodyText}>
+        <IntroDiagram />
         <p style={{ margin: '0 0 10px' }}>
-          A reframe of Nam June Paik's{' '}
+          This reframes Nam June Paik's{' '}
           <A href={PAIK_URL} italic>
             Moon is the Oldest TV
           </A>{' '}
-          (1965), a natural object used as a technical medium.
+          (1965): Paik turned a natural object into a technical medium, and so
+          does this.
         </p>
         <p style={{ margin: 0 }}>
           When two people are far apart and miss each other, they look up at the
           same Moon. In that moment they become a pair of eyes separated by half
-          a planet, and the Moon is what their two gazes agree on. {em('Two viewpoints, one subject, and that is a stereoscope.')}
+          a planet, and the Moon is what their two gazes agree on.{' '}
+          {em('Two viewpoints, one subject, and that is a stereoscope.')}
         </p>
       </div>
     ),
@@ -198,9 +228,7 @@ function page1Content(): PageContent {
   return {
     title: titleEl(
       <>
-        Two Rooftops,
-        <br />
-        One Moon
+        The Moon from {noBreak('Two Hemispheres')}
       </>,
     ),
     body: (
@@ -213,25 +241,27 @@ function page1Content(): PageContent {
             margin: '0 0 12px',
           }}
         >
-          <Figure src={ROOFTOP_BOSTON} caption='Boston, end of winter — 42.36°N' />
-          <Figure src={ROOFTOP_SANTIAGO} caption='Santiago, late summer — 33.45°S' />
+          <Figure
+            src={ROOFTOP_BOSTON}
+            caption='Boston, end of winter — 42.36°N'
+          />
+          <Figure
+            src={ROOFTOP_SANTIAGO}
+            caption='Santiago, late summer — 33.45°S'
+          />
         </div>
         <p style={{ margin: '0 0 10px' }}>
-          During the{' '}
-          <A href={ECLIPSE_URL}>lunar eclipse of March 2–3, 2026</A>, Carlos and I
-          were separated by a season. His rooftop was summer. Mine was still
-          snowed in. We pointed
-          the same telescope at the same Moon at the same second, about{' '}
-          {em('7,800 km')} apart, and brought the two images back together.
+          During the <A href={ECLIPSE_URL}>lunar eclipse of March 2–3, 2026</A>,
+          Carlos and I were separated by a season. His rooftop was summer; mine
+          was still snowed in. We pointed the same{' '}
+          <A href={SEESTAR_URL}>telescope</A> at the same Moon at the same
+          second, about {em('7,800 km')} apart, and brought the two images back
+          together.
         </p>
         <p style={{ margin: '0 0 12px' }}>
-          Your left eye sees what Boston saw. Your right eye sees what Santiago
-          saw. A version of the Moon {em('that no single observer on Earth can see')}.
-        </p>
-        <p style={{ margin: '0 0 12px' }}>
-          Your eyes sit about {em('6 cm')} apart. Boston and Santiago sit{' '}
-          {em('7,800 km')} apart. For these few minutes, you are looking at the
-          Moon as if your head were the size of the Earth.
+          Your eyes are about {em('6 cm')} apart; Boston and Santiago,{' '}
+          {em('7,800 km')}. For these few minutes, you are looking at the Moon
+          {em(' as if your head were the size of the Earth.')}
         </p>
         <StatRow />
       </div>
@@ -244,34 +274,34 @@ function page2Content(): PageContent {
   return {
     title: titleEl(
       <>
-        How It's Made,
-        <br />
-        How to See It
+        {noBreak('Perspective Calibration,')} {noBreak('Stereo Viewing')}
       </>,
     ),
     body: (
       <div style={bodyText}>
         <p style={{ margin: '0 0 10px' }}>
-          Each telescope is on an alt-azimuth mount, so the Moon rotates through
-          the frame as the sky turns. The two mounts see different rotation
-          because they are in different hemispheres. Every frame is{' '}
-          <A href={PIPELINE_URL}>stabilized, derotated, and aligned</A> to a
-          single shared {em('Boston–Santiago baseline')},
-          the only condition under which two eyes can fuse the pair. The browser
-          recomputes the alignment live, in a shader.
+          Each telescope tracks the Moon as it crosses the sky, so every frame
+          is <A href={PIPELINE_URL}>stabilized, derotated, and aligned</A> to a
+          single shared {em('Boston–Santiago baseline')}, because that's the
+          only way two eyes can fuse the pair. Your browser redoes that
+          alignment on the fly, in a shader.
         </p>
         <p style={{ margin: '0 0 10px' }}>
-          By default the two views {em('alternate a few times a second')}, a
-          wiggle. Your eye reads the back-and-forth as depth, with no glasses and
-          no special screen.
+          The pair sits {em('side by side')} — Boston on the left, Santiago on
+          the right, the way a stereoscope holds two photographs. To find the
+          depth, {em('relax or cross your eyes')} until the two Moons slide
+          together into one, or look through a stereoscope or Cardboard viewer.
         </p>
-        <div style={{ marginBottom: 4 }}>
-          {em('TAB')} simulation &nbsp;·&nbsp; {em('SPACE')} play / pause
+        {/* <div style={{ marginBottom: 4 }}>
+          {em('← →')} scrub &nbsp;·&nbsp; {em('SPACE')} play / pause
           &nbsp;·&nbsp; {em('F')} fullscreen
-        </div>
+        </div> */}
         <p style={{ margin: '8px 0 0', color: 'var(--text-3)' }}>
-          Open {em('CONTROLS')} for red/cyan anaglyph, a stereoscope side-by-side,
-          or shutter-glasses modes.
+          Can't fuse it? Open {em('CONTROLS')} and switch to {em('wiggle')}: the
+          two views flip back and forth a few times a second, and your eye reads
+          that as depth. {em('CONTROLS')} also has anaglyph (colored glasses)
+          and shutter, which I run on a DLP 3D projector with active glasses in
+          the installation.
         </p>
       </div>
     ),
@@ -326,7 +356,13 @@ function IntroductionCard({
       <div style={{ borderTop: '1px solid var(--line-2)' }} />
       {body}
 
-      <div style={{ paddingTop: 12, marginTop: 'auto', borderTop: '1px solid var(--line-2)' }}>
+      <div
+        style={{
+          paddingTop: 12,
+          marginTop: 'auto',
+          borderTop: '1px solid var(--line-2)',
+        }}
+      >
         {/* Ambient load progress — never blocks ENTER. Entering before the
             videos finish just shows the loading placeholder in the stereo
             view, then auto-plays once ready. */}
@@ -475,7 +511,12 @@ export function IntroductionView() {
           pointerEvents: 'none',
         }}
       />
-      <IntroductionCard page={page} ready={ready} progress={progress} isLast={isLast} />
+      <IntroductionCard
+        page={page}
+        ready={ready}
+        progress={progress}
+        isLast={isLast}
+      />
     </div>
   );
 }

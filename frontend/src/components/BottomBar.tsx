@@ -254,7 +254,7 @@ export function BottomBar() {
         class='flex items-center'
         style={{ gap: narrow ? 4 : 8, flex: 'none' }}
       >
-        <IntroButton label={narrow ? 'INT' : 'INTRODUCTION'} />
+        <IntroButton label={narrow ? 'INT' : 'INTRO'} />
         <Tab id='stereo' label={narrow ? 'ST' : 'STEREOSCOPY'} />
         <Tab id='sim' label={narrow ? 'SIM' : 'SIMULATION'} />
       </div>

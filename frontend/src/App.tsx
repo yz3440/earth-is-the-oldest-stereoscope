@@ -8,7 +8,7 @@ import { IntroductionView } from './components/IntroductionView';
 import type { EyeData } from './components/EyeOverlay';
 import type { PlanetaryScene, EyeSide } from './scene';
 import type { Manifest } from './manifest';
-import { view, panelOpen, isNarrow, fullscreen } from './state';
+import { view, panelOpen, isNarrow, fullscreen, showIntro } from './state';
 
 export interface AppProps {
   scene: PlanetaryScene | null;
@@ -38,8 +38,8 @@ export function App({ scene, manifest, boston, santiago, videos, getAngleRad, ge
       />
 
       {/* Sim view — always mounted to keep WebGL context. Hidden when the
-          stereo (videos) view is active. The introduction view re-uses
-          the sim view's stereo render as its background. */}
+          stereo (videos) view is active. The introduction view re-uses the
+          (mono) orbital diagram as its background. */}
       {scene && <SimView scene={scene} />}
 
       {/* Body labels (Earth / Sun / Moon) — shown on the sim and
@@ -48,8 +48,9 @@ export function App({ scene, manifest, boston, santiago, videos, getAngleRad, ge
           reads clean. */}
       {(isSim || isIntroduction) && scene && <SceneLabels scene={scene} />}
 
-      {/* Per-eye overlay text (stereo view only) */}
-      {isStereo && <EyeOverlay boston={boston} santiago={santiago} />}
+      {/* Per-eye overlay text (stereo view only). Hidden while the intro
+          pop-up is open so the centered concept card reads as a clean modal. */}
+      {isStereo && !showIntro.value && <EyeOverlay boston={boston} santiago={santiago} />}
 
       {/* Telescope grid — sim view only. */}
       {isSim && (
@@ -71,8 +72,8 @@ export function App({ scene, manifest, boston, santiago, videos, getAngleRad, ge
           the tab switcher, which is the user's way out of the tour. */}
       {!fullscreen.value && <BottomBar />}
 
-      {/* Introduction view — guided tour explaining the parallax geometry,
-          rendered over the stereo orbital diagram. Active when
+      {/* Introduction view — short guided tour explaining the parallax
+          geometry, rendered over the (mono) orbital diagram. Active when
           view==='introduction'. */}
       <IntroductionView />
     </div>

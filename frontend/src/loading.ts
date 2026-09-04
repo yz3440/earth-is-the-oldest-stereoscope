@@ -34,3 +34,31 @@ export function getMessageCanvas(text: string, fontPx = 44): HTMLCanvasElement {
 export function getLoadingCanvas(fontPx = 44): HTMLCanvasElement {
   return getMessageCanvas('LOADING', fontPx);
 }
+
+// Title + a dim one-line status underneath (download %, per-video
+// readyState). One reusable canvas, redrawn only when the text changes —
+// it lets a phone user report *where* loading is stuck without a console.
+let statusCanvas: HTMLCanvasElement | null = null;
+let statusKey = '';
+export function getStatusCanvas(title: string, status: string, fontPx = 44): HTMLCanvasElement {
+  const key = `${title}\n${status}\n${fontPx}`;
+  if (statusCanvas && statusKey === key) return statusCanvas;
+  if (!statusCanvas) {
+    statusCanvas = document.createElement('canvas');
+    statusCanvas.width = SIZE;
+    statusCanvas.height = SIZE;
+  }
+  const ctx = statusCanvas.getContext('2d')!;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, SIZE, SIZE);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#c2c2c2';
+  ctx.font = `bold ${fontPx}px ui-monospace, "SF Mono", Menlo, monospace`;
+  ctx.fillText(title, SIZE / 2, SIZE / 2);
+  ctx.fillStyle = '#5a5a5a';
+  ctx.font = `${Math.round(fontPx * 0.45)}px ui-monospace, "SF Mono", Menlo, monospace`;
+  ctx.fillText(status, SIZE / 2, SIZE / 2 + fontPx * 1.1);
+  statusKey = key;
+  return statusCanvas;
+}

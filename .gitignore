@@ -9,6 +9,9 @@ dist
 
 # Exception: commit the compressed web videos served by the frontend viewer
 !frontend/public/footage/**/*_web.mp4
+# ...and the 1 s HEVC Main 10 decode-probe clip the viewer plays before
+# committing to the full download (frontend/src/manifest.ts)
+!frontend/public/footage/probe/*.mp4
 # ...but not the 8-bit H.264 fallbacks (06_compress_for_web.py --codec h264):
 # ~175 MB for the pair is too large for GitHub. Host them out-of-band; the
 # viewer probes for them and falls back to the HEVC file if they're missing.

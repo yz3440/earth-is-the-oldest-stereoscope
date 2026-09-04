@@ -66,6 +66,7 @@ uniform int   u_layout;        // 0 sbs-half, 1 sbs-full, 2 tb-half, 3 tb-full
 uniform int   u_encoding;      // 0 none, 1 rc, 2 rc-dubois, 3 gm, 4 amber, 5 frame-seq, 6 wiggle
 uniform float u_parallax;      // uv offset per eye (L: -, R: +)
 uniform float u_squeeze;       // per-eye horizontal scale (>1 squeezes, <1 stretches)
+uniform float u_zoom;          // per-eye scale about the eye-region centre; 1 = none, <1 shrinks
 uniform bool  u_swap;
 uniform int   u_frame_parity;  // for frame-seq / wiggle: 0 left, 1 right
 
@@ -88,6 +89,13 @@ vec3 sampleEye(int eye, vec2 eyeUV, float eyeAspect, float angle, float alpha, f
   // half-SBS 3D TVs); <1 widens it. Applied before letterbox so rotation
   // still operates on a square source-UV space.
   eyeUV.x = (eyeUV.x - 0.5) * u_squeeze + 0.5;
+
+  // Cardboard zoom: shrink the displayed image about the eye-region centre
+  // so the Moon sits in the lens' sharp central field. A scalar scale of the
+  // centred coordinate is isotropic in screen px, so the letterbox and the
+  // rotation below still operate on a square source-UV space; the sampled
+  // range only grows, so out-of-bounds still returns black.
+  eyeUV = (eyeUV - 0.5) / u_zoom + 0.5;
 
   // Letterbox: scale UV away from center along the shorter axis so the
   // square source doesn't squash when the eye region is not square.
@@ -234,6 +242,7 @@ export interface RenderOptions {
   encoding: Encoding;
   parallaxPx: number;
   squeeze: number; // per-eye horizontal scale; 1.0 = no change, >1 squeezes, <1 stretches
+  zoom: number; // per-eye uniform scale about the eye centre; 1 = no change, <1 shrinks
   swap: boolean;
   frameParity: number; // 0 or 1
 }
@@ -305,7 +314,7 @@ export class StereoRenderer {
       'u_left_angle_rad', 'u_right_angle_rad',
       'u_left_alpha', 'u_right_alpha',
       'u_canvas_aspect', 'u_layout', 'u_encoding',
-      'u_parallax', 'u_squeeze', 'u_swap', 'u_frame_parity',
+      'u_parallax', 'u_squeeze', 'u_zoom', 'u_swap', 'u_frame_parity',
     ];
     for (const n of UNIFORM_NAMES) this.u[n] = gl.getUniformLocation(this.program, n);
   }
@@ -399,6 +408,7 @@ export class StereoRenderer {
     // width, but ±200px / ~1080 ≈ ±0.19 UV which is visually right.
     gl.uniform1f(this.u.u_parallax!, opts.parallaxPx / 1080.0);
     gl.uniform1f(this.u.u_squeeze!, opts.squeeze);
+    gl.uniform1f(this.u.u_zoom!, Math.max(0.05, opts.zoom));
     gl.uniform1i(this.u.u_swap!, opts.swap ? 1 : 0);
     gl.uniform1i(this.u.u_frame_parity!, opts.frameParity);
 

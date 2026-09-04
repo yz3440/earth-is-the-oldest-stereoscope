@@ -14,6 +14,8 @@ import {
   isCompact,
   fullscreen,
   toggleFullscreen,
+  isCoarsePointer,
+  enterCardboard,
 } from '../state';
 import { SIM_START, SIM_END } from '../astronomy';
 import { ControlPanelBody, StereoControls, SimControls, IntroductionControls } from './ControlPanel';
@@ -112,6 +114,10 @@ function ControlsPopover({
         bottom: 44,
         right: rightPx,
         zIndex: 40,
+        // A landscape phone is only ~360 CSS px tall; let the popover scroll
+        // rather than run off the top.
+        maxHeight: 'calc(100dvh - 52px)',
+        overflowY: 'auto',
         background: 'rgba(0,0,0,0.92)',
         border: '1px solid rgba(255,255,255,0.22)',
         boxShadow: '0 0 12px rgba(255,255,255,0.06)',
@@ -280,6 +286,25 @@ export function BottomBar() {
           }}
         >
           ⛶
+        </button>
+      )}
+
+      {/* Cardboard entry — touch devices only, and not on narrow bars (the
+          bar is already ~360 px wide there; phones reach it via the intro
+          card and the CTRL popover instead). */}
+      {isCoarsePointer.value && !narrow && document.fullscreenEnabled && (
+        <button
+          type='button'
+          onClick={() => void enterCardboard()}
+          title='View in a Google Cardboard headset'
+          style={{
+            padding: '4px 10px',
+            fontSize: 11,
+            letterSpacing: '0.12em',
+            flex: 'none',
+          }}
+        >
+          CARDBOARD
         </button>
       )}
 

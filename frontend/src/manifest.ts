@@ -104,15 +104,15 @@ async function loadStation(side: Side): Promise<StationManifest> {
   const angles: StereoAngles = await anglesRes.json();
 
   // Serve the unrotated stabilized video; rotation is applied in the shader.
-  // The H.264 fallbacks are too large for git, so a deployment may not ship
-  // them: only switch to one that is actually there, else stay on HEVC.
+  // Only switch to an H.264 fallback that is actually deployed (HEAD check),
+  // else stay on HEVC — guards against a build that omitted the files.
   const urlFor = (suffix: string) =>
     `${dir}/${angles.source_video.replace(/_stabilized\.mp4$/, suffix)}`;
   const hevcUrl = urlFor('_stabilized_web.mp4');
-  // The H.264 files are too large for git, so a build from the repo never
-  // ships them. Set VITE_FOOTAGE_H264_BASE (e.g. an R2 / S3 bucket URL that
-  // sends CORS headers for GET + HEAD) to serve them from elsewhere; empty
-  // means same-origin next to the HEVC files.
+  // The H.264 files ship in the repo next to the HEVC ones. Set
+  // VITE_FOOTAGE_H264_BASE (e.g. an R2 / S3 bucket URL that sends CORS
+  // headers for GET + HEAD) to serve them from elsewhere instead; empty
+  // means same-origin.
   const h264Base = (import.meta.env.VITE_FOOTAGE_H264_BASE ?? '').replace(/\/$/, '');
   const h264Url = `${h264Base}${urlFor('_stabilized_h264_web.mp4')}`;
   const videoUrl = (await canPlayHevc()) || !(await isDeployed(h264Url)) ? hevcUrl : h264Url;

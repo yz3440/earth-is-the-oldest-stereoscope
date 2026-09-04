@@ -14,7 +14,7 @@ import { loadManifest } from './manifest';
 import type { Manifest, Side } from './manifest';
 import { localTime, localDate, tzAbbrev } from './localtime';
 import { weatherFor } from './weather';
-import { getLoadingCanvas, getMessageCanvas } from './loading';
+import { getMessageCanvas, getStatusCanvas } from './loading';
 import footageSizes from 'virtual:footage-sizes';
 import { App } from './App';
 import type { EyeData } from './components/EyeOverlay';
@@ -232,11 +232,30 @@ async function bootManifest() {
       playing.value = true;
     }
   };
+  // Readiness gate. Desktop Chrome honours preload=auto and reaches
+  // HAVE_FUTURE_DATA (3) on its own. Chrome on Android caps preload at
+  // `metadata` (always on cellular / Data Saver) and suspends the pipeline
+  // after the first frame, so readyState parks at 1-2 until something calls
+  // play() — which only happens once we mark ready. Waiting for 3 therefore
+  // deadlocks on phones (the "stuck at LOADING" report). Accept the first
+  // decoded frame (2); and once metadata (1) has sat for a moment, go ahead
+  // anyway: the whole file is a local blob, so play() drives decode, and the
+  // compositor keeps the LOADING placeholder in the slot until frames land.
+  const METADATA_GRACE_MS = 1500;
   const watch = (v: HTMLVideoElement, side: Side) => {
+    let metadataAt = 0;
     const check = () => {
-      if (v.readyState >= 3) {
+      if (v.readyState >= 2) {
         markReady(side);
         return true;
+      }
+      if (v.readyState >= 1) {
+        if (!metadataAt) metadataAt = performance.now();
+        else if (performance.now() - metadataAt > METADATA_GRACE_MS) {
+          console.warn(`[video:${side}] stuck at readyState ${v.readyState} after metadata; starting anyway`);
+          markReady(side);
+          return true;
+        }
       }
       return false;
     };
@@ -252,10 +271,12 @@ async function bootManifest() {
       v.removeEventListener('canplay', onEvt);
       v.removeEventListener('canplaythrough', onEvt);
       v.removeEventListener('loadeddata', onEvt);
+      v.removeEventListener('loadedmetadata', onEvt);
     };
     v.addEventListener('canplay', onEvt);
     v.addEventListener('canplaythrough', onEvt);
     v.addEventListener('loadeddata', onEvt);
+    v.addEventListener('loadedmetadata', onEvt);
     v.load();
   };
   watch(bostonVideo, 'boston');
@@ -741,6 +762,15 @@ effect(() => {
   lastIntroductionActive = active;
 });
 
+// One dim line under LOADING: download % and each video element's
+// readyState (0 nothing, 1 metadata, 2 first frame, 3+ buffering). Lets a
+// phone user tell us where it stalls without plugging in a debugger.
+function loadingStatusLine(): string {
+  const pct = Math.round(loadProgress.value * 100);
+  const rs = (v: HTMLVideoElement | null) => (v ? `rs${v.readyState}` : 'fetching');
+  return `${pct}%   BOS ${rs(bostonVideo)}   SAN ${rs(santiagoVideo)}`;
+}
+
 // --- Animation loop ---
 let lastRealTime = 0;
 function animate(realTime: number) {
@@ -831,7 +861,9 @@ function animate(realTime: number) {
   const effParity = effEncoding === 'wiggle' ? wiggleParity : frameParity;
 
   if (!videosReady.value) {
-    const loading = videoError.value ? getMessageCanvas('NO VIDEO') : getLoadingCanvas();
+    const loading = videoError.value
+      ? getMessageCanvas('NO VIDEO')
+      : getStatusCanvas('LOADING', loadingStatusLine());
     stereo.uploadSource('left', loading);
     stereo.uploadSource('right', loading);
     // LOADING placeholder stays upright regardless of flipHead — rotating

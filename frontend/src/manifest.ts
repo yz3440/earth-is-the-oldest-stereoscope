@@ -109,7 +109,12 @@ async function loadStation(side: Side): Promise<StationManifest> {
   const urlFor = (suffix: string) =>
     `${dir}/${angles.source_video.replace(/_stabilized\.mp4$/, suffix)}`;
   const hevcUrl = urlFor('_stabilized_web.mp4');
-  const h264Url = urlFor('_stabilized_h264_web.mp4');
+  // The H.264 files are too large for git, so a build from the repo never
+  // ships them. Set VITE_FOOTAGE_H264_BASE (e.g. an R2 / S3 bucket URL that
+  // sends CORS headers for GET + HEAD) to serve them from elsewhere; empty
+  // means same-origin next to the HEVC files.
+  const h264Base = (import.meta.env.VITE_FOOTAGE_H264_BASE ?? '').replace(/\/$/, '');
+  const h264Url = `${h264Base}${urlFor('_stabilized_h264_web.mp4')}`;
   const videoUrl = (await canPlayHevc()) || !(await isDeployed(h264Url)) ? hevcUrl : h264Url;
 
   // Real-sec per video-sec. Seestar reports timelapse_fps=1 but the

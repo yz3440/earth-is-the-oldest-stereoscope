@@ -14,7 +14,7 @@ import { loadManifest } from './manifest';
 import type { Manifest, Side } from './manifest';
 import { localTime, localDate, tzAbbrev } from './localtime';
 import { weatherFor } from './weather';
-import { getMessageCanvas, getStatusCanvas } from './loading';
+import { getStatusCanvas } from './loading';
 import footageSizes from 'virtual:footage-sizes';
 import { App } from './App';
 import type { EyeData } from './components/EyeOverlay';
@@ -131,6 +131,11 @@ async function makeVideo(
     // readyState>=3 gate never passes). Code 4 = MEDIA_ERR_SRC_NOT_SUPPORTED
     // (typically no HEVC decoder on this device), 3 = decode error.
     videoError.value = `${tag}: video error ${e?.code ?? '?'} — this browser cannot play the footage`;
+    // Don't leave the piece dead: unlock the clock, play/pause and the SIM
+    // view. The stereo view keeps showing NO VIDEO (see animate) while the
+    // source is VIDEO; switching SOURCE to SIM shows the simulation instead.
+    videosReady.value = true;
+    playing.value = true;
   });
   v.addEventListener('stalled', () => console.warn(`[video:${tag}] stalled`));
 
@@ -860,9 +865,13 @@ function animate(realTime: number) {
   const effParallaxPx = parallaxPx.value + (cbGeom ? cardboardOffsetPx.value / zoom : 0);
   const effParity = effEncoding === 'wiggle' ? wiggleParity : frameParity;
 
-  if (!videosReady.value) {
+  // Placeholder: still loading, or the footage failed to decode on this
+  // device and the user hasn't switched SOURCE to SIM.
+  const showPlaceholder =
+    !videosReady.value || (videoError.value !== null && sourceMode.value === 'video-only');
+  if (showPlaceholder) {
     const loading = videoError.value
-      ? getMessageCanvas('NO VIDEO')
+      ? getStatusCanvas('NO VIDEO', 'this device cannot decode the footage (HEVC 10-bit)')
       : getStatusCanvas('LOADING', loadingStatusLine());
     stereo.uploadSource('left', loading);
     stereo.uploadSource('right', loading);

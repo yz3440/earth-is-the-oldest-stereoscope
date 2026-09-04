@@ -339,3 +339,39 @@ if (typeof document !== 'undefined') {
     if (document.visibilityState === 'visible' && cardboard.value) void acquireWakeLock();
   });
 }
+
+// --- Overlay text depth ---------------------------------------------------
+// Where the per-eye telemetry text sits in depth. `screen`: pinned, no shift
+// (the default). `moon`: shifted by the same on-screen distance the shader
+// shifts the Moon, so it fuses at the Moon's depth. `custom`: its own shift.
+export type TextDepth = 'screen' | 'moon' | 'custom';
+export const textDepth = persisted<TextDepth>('textDepth', 'screen');
+export const textParallaxPx = persisted<number>('textParallaxPx', 0);
+
+// Shared stereo geometry — one source of truth for the shader (main.tsx) and
+// the DOM overlay (EyeOverlay.tsx) so text and Moon always agree. Cardboard
+// zoom / lens offset apply in Cardboard mode and while a Cardboard slider is
+// being previewed. The offset is a physical on-screen distance while the
+// shader's parallax is applied in source px *after* the zoom, hence / zoom.
+export const stereoZoom = computed(() =>
+  cardboard.value || cardboardPreview.value
+    ? Math.max(0.05, cardboardScalePct.value / 100)
+    : 1,
+);
+export const effectiveParallaxPx = computed(
+  () =>
+    parallaxPx.value +
+    (cardboard.value || cardboardPreview.value
+      ? cardboardOffsetPx.value / stereoZoom.value
+      : 0),
+);
+export const textShiftPx = computed(() => {
+  switch (textDepth.value) {
+    case 'screen':
+      return 0;
+    case 'moon':
+      return effectiveParallaxPx.value;
+    case 'custom':
+      return textParallaxPx.value;
+  }
+});

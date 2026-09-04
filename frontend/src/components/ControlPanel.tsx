@@ -3,8 +3,8 @@
 //   - horizontal: inside the desktop controls bar above BottomBar
 // Both share the same signals and input elements; only layout differs.
 
-import { layout, encoding, method, setMethod, ANAGLYPH_ENCODINGS, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom, loopOverlap, squeezePct, wiggleMs, isCoarsePointer, enterCardboard, cardboardPreview, cardboardScalePct, cardboardOffsetPx, CARDBOARD_SCALE_DEFAULT, CARDBOARD_OFFSET_DEFAULT } from '../state';
-import type { Layout, Encoding, Method, SourceMode } from '../state';
+import { layout, encoding, method, setMethod, ANAGLYPH_ENCODINGS, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom, loopOverlap, squeezePct, wiggleMs, isCoarsePointer, enterCardboard, cardboardPreview, cardboardScalePct, cardboardOffsetPx, CARDBOARD_SCALE_DEFAULT, CARDBOARD_OFFSET_DEFAULT, textDepth, textParallaxPx } from '../state';
+import type { Layout, Encoding, Method, SourceMode, TextDepth } from '../state';
 import { TooltipLabel } from './Tooltip';
 
 type Orientation = 'vertical' | 'horizontal';
@@ -17,6 +17,8 @@ const TOOLTIPS = {
   CORRECTION: 'Rotate each eye image so the stereo baseline is horizontal (uses telescope orientation data).',
   'FLIP HEAD': 'Flip the view 180° and swap eyes — useful for lying on your back or upside-down headsets.',
   PARALLAX: 'Horizontal shift between eyes in pixels — adjusts perceived depth.',
+  'TEXT DEPTH': 'Where the overlay text sits in depth: pinned to the screen, shifted with the Moon (follows PARALLAX), or at its own shift.',
+  'TEXT SHIFT': 'Horizontal shift between eyes for the overlay text, in pixels — like PARALLAX, but for the text only.',
   WIGGLE: 'How fast the two views alternate, in milliseconds per view. Lower = faster wobble.',
   'TOP TEXT': 'Show the city name, coordinates, and local time block at the top of each eye.',
   'BOT TEXT': 'Show the weather, UTC time, and eclipse phase block at the bottom of each eye.',
@@ -188,6 +190,50 @@ function ParallaxSlider({ width = 100 }: { width?: number }) {
         onClick={() => (parallaxPx.value = 0)}
         style={{ padding: '2px 6px', fontSize: 10, opacity: 0.7 }}
         title="Reset parallax to 0"
+      >
+        reset
+      </button>
+    </div>
+  );
+}
+
+const TEXT_DEPTH_OPTS: { v: TextDepth; l: string }[] = [
+  { v: 'screen', l: 'screen' },
+  { v: 'moon',   l: 'with moon' },
+  { v: 'custom', l: 'custom' },
+];
+
+function TextDepthSelect() {
+  return (
+    <select
+      value={textDepth.value}
+      onChange={(e) => (textDepth.value = (e.target as HTMLSelectElement).value as TextDepth)}
+    >
+      {TEXT_DEPTH_OPTS.map((o) => (<option value={o.v}>{o.l}</option>))}
+    </select>
+  );
+}
+
+// Own parallax for the overlay text; shown only when TEXT DEPTH is `custom`.
+function TextShiftSlider({ width = 100 }: { width?: number }) {
+  return (
+    <div class="flex items-center gap-2">
+      <input
+        type="range"
+        min={-200}
+        max={200}
+        value={textParallaxPx.value}
+        onInput={(e) => (textParallaxPx.value = parseInt((e.target as HTMLInputElement).value))}
+        style={{ width }}
+      />
+      <span style={{ fontSize: 11, opacity: 0.7, minWidth: 36, textAlign: 'right' }}>
+        {textParallaxPx.value > 0 ? '+' : ''}{textParallaxPx.value}px
+      </span>
+      <button
+        type="button"
+        onClick={() => (textParallaxPx.value = 0)}
+        style={{ padding: '2px 6px', fontSize: 10, opacity: 0.7 }}
+        title="Reset text shift to 0"
       >
         reset
       </button>
@@ -393,6 +439,10 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
           <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
         </VRow>
         <VRow label="PARALLAX"><ParallaxSlider width={100} /></VRow>
+        <VRow label="TEXT DEPTH"><TextDepthSelect /></VRow>
+        {textDepth.value === 'custom' && (
+          <VRow label="TEXT SHIFT"><TextShiftSlider width={100} /></VRow>
+        )}
         <VRow label="SQUEEZE"><SqueezeSlider width={100} /></VRow>
         {isCoarsePointer.value && (
           <>
@@ -434,6 +484,10 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
         <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
       </HCell>
       <HCell label="PARALLAX"><ParallaxSlider width={120} /></HCell>
+      <HCell label="TEXT DEPTH"><TextDepthSelect /></HCell>
+      {textDepth.value === 'custom' && (
+        <HCell label="TEXT SHIFT"><TextShiftSlider width={120} /></HCell>
+      )}
       <HCell label="SQUEEZE"><SqueezeSlider width={120} /></HCell>
       {isCoarsePointer.value && (
         <>

@@ -7,7 +7,41 @@
 // left eye) gets the top quarter; bottom eye gets the bottom quarter.
 
 import { computed } from '@preact/signals';
-import { layout, isNarrow, isCompact, flipHead, showEyeTop, showEyeBottom } from '../state';
+import {
+  layout,
+  encoding,
+  isNarrow,
+  isCompact,
+  flipHead,
+  showEyeTop,
+  showEyeBottom,
+  squeezePct,
+  stereoZoom,
+  textShiftPx,
+  viewportWidth,
+  viewportHeight,
+} from '../state';
+
+// On-screen horizontal shift (CSS px) that the shader applies to one eye's
+// image for a parallax of `px` source pixels — mirrors `sampleEye` in
+// stereo.ts. The zoom scales eye-UV before the letterbox; `-half` layouts and
+// the full-frame encodings (wiggle / anaglyph / shutter) letterbox the square
+// source into the eye region, so one source px is min(eyeW, eyeH)/1080 screen
+// px; `-full` layouts stretch it to the eye width; squeeze divides the x
+// scale. Positive = inward (left eye moves right, right eye moves left).
+function parallaxScreenPx(px: number): number {
+  const W = viewportWidth.value;
+  const H = viewportHeight.value;
+  const l = layout.value;
+  const fullFrame = encoding.value !== 'none';
+  const sbs = l === 'sbs-half' || l === 'sbs-full';
+  const eyeW = fullFrame || !sbs ? W : W / 2;
+  const eyeH = fullFrame || sbs ? H : H / 2;
+  const stretch = !fullFrame && (l === 'sbs-full' || l === 'tb-full');
+  const fit = stretch ? eyeW : Math.min(eyeW, eyeH);
+  const squeeze = Math.max(0.01, squeezePct.value / 100);
+  return ((px / 1080) * fit * stereoZoom.value) / squeeze;
+}
 import type { EclipseData } from '../astronomy';
 import type { Weather } from '../weather';
 
@@ -72,6 +106,12 @@ function Eye({ data, which }: { data: EyeData; which: 'top' | 'bottom' | 'left' 
   const hFont = narrow ? 15 : 20;
   const bodyFont = narrow ? 10 : 11;
 
+  // TEXT DEPTH: move this eye's text by the same on-screen distance the
+  // shader moves its Moon image (or the custom text shift). Left/top eye
+  // shifts right for positive values, right/bottom eye shifts left.
+  const shift = parallaxScreenPx(textShiftPx.value);
+  const dir = which === 'left' || which === 'top' ? 1 : -1;
+
   return (
     <div
       class="absolute select-none pointer-events-none"
@@ -80,6 +120,7 @@ function Eye({ data, which }: { data: EyeData; which: 'top' | 'bottom' | 'left' 
         padding: `${pad}px`,
         paddingBottom: which === 'left' || which === 'right' || which === 'bottom' ? padBottomBar : pad,
         textAlign: align,
+        transform: shift ? `translateX(${(dir * shift).toFixed(1)}px)` : undefined,
       }}
     >
       <div class="flex flex-col h-full justify-between">

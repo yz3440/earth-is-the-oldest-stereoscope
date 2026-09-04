@@ -14,7 +14,7 @@ import { loadManifest } from './manifest';
 import type { Manifest, Side } from './manifest';
 import { localTime, localDate, tzAbbrev } from './localtime';
 import { weatherFor } from './weather';
-import { getLoadingCanvas } from './loading';
+import { getLoadingCanvas, getMessageCanvas } from './loading';
 import footageSizes from 'virtual:footage-sizes';
 import { App } from './App';
 import type { EyeData } from './components/EyeOverlay';
@@ -45,7 +45,13 @@ import {
   viewportHeight,
   RATE_STEPS,
   DEFAULT_RATE_INDEX,
+  cardboard,
+  cardboardPreview,
+  cardboardScalePct,
+  cardboardOffsetPx,
+  videoError,
 } from './state';
+import type { Layout, Encoding } from './state';
 
 const CROSSFADE_THRESHOLD_RATE = 30;
 const DEG2RAD = Math.PI / 180;
@@ -121,6 +127,10 @@ async function makeVideo(
   v.addEventListener('error', () => {
     const e = v.error;
     console.warn(`[video:${tag}] error code=${e?.code} msg=${e?.message}`);
+    // Surface it: without this the stereo view shows LOADING forever (the
+    // readyState>=3 gate never passes). Code 4 = MEDIA_ERR_SRC_NOT_SUPPORTED
+    // (typically no HEVC decoder on this device), 3 = decode error.
+    videoError.value = `${tag}: video error ${e?.code ?? '?'} — this browser cannot play the footage`;
   });
   v.addEventListener('stalled', () => console.warn(`[video:${tag}] stalled`));
 
@@ -299,6 +309,17 @@ function advanceCrossfade(
   const curFrame = Math.floor(video.currentTime * m.videoFps);
   const slot: 'left' | 'right' = side === 'boston' ? 'left' : 'right';
 
+  // Crossfade is disabled at fast sim rates (the default 30x included). Bail
+  // before the two 1080^2 drawImage copies per frame - a measurable cost on
+  // phones - and re-seed the prev canvas once the rate drops below the
+  // threshold. While alpha is 1 the shader never reads the prev textures, so
+  // the output is unchanged.
+  const simRate = RATE_STEPS[rateIdx.value];
+  if (simRate >= CROSSFADE_THRESHOLD_RATE) {
+    st.prevInitialized = false;
+    return 1;
+  }
+
   if (!st.prevInitialized) {
     stereo.uploadPrevSource(slot, video);
     const pctx = st.pendingCanvas.getContext('2d');
@@ -340,8 +361,6 @@ function advanceCrossfade(
       st.pendingCanvas.height,
     );
 
-  const simRate = RATE_STEPS[rateIdx.value];
-  if (simRate >= CROSSFADE_THRESHOLD_RATE) return 1;
   const playbackRate = Math.max(0.001, simRate / m.speedup);
   const wallPerFrameMs = 1000 / (m.videoFps * playbackRate);
   return clamp((wallNow - st.transitionWallMs) / wallPerFrameMs, 0, 1);
@@ -762,10 +781,15 @@ function animate(realTime: number) {
   const nowDate = new Date(currentTime.value);
   const frame = computeFrame(nowDate);
 
+  const cb = cardboard.value;
   if (scene) {
     scene.applyFrameState(frame);
     scene.updateBodyScales(view.value === 'introduction');
-    scene.renderPIPOutputs();
+    // The sim PIP renders (four offscreen passes + synchronous readbacks per
+    // frame) are the single biggest GPU cost on a phone. In Cardboard mode
+    // nothing consumes them unless the source is the simulation, so skip
+    // them there. Desktop behaviour is unchanged.
+    if (!cb || sourceMode.value === 'sim-only' || scrubbing.value) scene.renderPIPOutputs();
   }
 
   if (sync.hasTracks()) {
@@ -778,13 +802,36 @@ function animate(realTime: number) {
 
   if (!stereo) return;
 
+  // Chrome Android fires several `resize`s while the system bars animate away
+  // and again after the orientation lock rotates the view; re-check the
+  // backing store each frame so the final size is always right.
+  {
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.floor(window.innerWidth * dpr);
+    const h = Math.floor(window.innerHeight * dpr);
+    if (stereo.canvas.width !== w || stereo.canvas.height !== h) stereo.resize(w, h);
+  }
+
   if (view.value === 'sim' || view.value === 'introduction') {
     if (scene) scene.renderMain();
     return;
   }
 
+  // Cardboard mode forces the raw side-by-side pair without touching the
+  // persisted `layout` / `encoding`. Its geometry (per-eye zoom + inward
+  // lens-axis shift) also previews while a Cardboard slider is dragged.
+  // The offset is a physical on-screen distance, and the shader's parallax
+  // is applied in source px *after* the zoom, so divide by the zoom to keep
+  // the on-screen displacement constant.
+  const cbGeom = cb || cardboardPreview.value;
+  const zoom = cbGeom ? Math.max(0.05, cardboardScalePct.value / 100) : 1;
+  const effLayout: Layout = cb ? 'sbs-half' : layout.value;
+  const effEncoding: Encoding = cb ? 'none' : encoding.value;
+  const effParallaxPx = parallaxPx.value + (cbGeom ? cardboardOffsetPx.value / zoom : 0);
+  const effParity = effEncoding === 'wiggle' ? wiggleParity : frameParity;
+
   if (!videosReady.value) {
-    const loading = getLoadingCanvas();
+    const loading = videoError.value ? getMessageCanvas('NO VIDEO') : getLoadingCanvas();
     stereo.uploadSource('left', loading);
     stereo.uploadSource('right', loading);
     // LOADING placeholder stays upright regardless of flipHead — rotating
@@ -795,12 +842,13 @@ function animate(realTime: number) {
       rightAngleRad: 0,
       leftAlpha: 1,
       rightAlpha: 1,
-      layout: layout.value,
-      encoding: encoding.value,
-      parallaxPx: parallaxPx.value,
+      layout: effLayout,
+      encoding: effEncoding,
+      parallaxPx: effParallaxPx,
       squeeze: squeezePct.value / 100,
+      zoom,
       swap: flipHead.value,
-      frameParity: encoding.value === 'wiggle' ? wiggleParity : frameParity,
+      frameParity: effParity,
     });
     return;
   }
@@ -848,12 +896,13 @@ function animate(realTime: number) {
     rightAngleRad,
     leftAlpha,
     rightAlpha,
-    layout: layout.value,
-    encoding: encoding.value,
-    parallaxPx: parallaxPx.value,
+    layout: effLayout,
+    encoding: effEncoding,
+    parallaxPx: effParallaxPx,
     squeeze: squeezePct.value / 100,
+    zoom,
     swap: false,
-    frameParity: encoding.value === 'wiggle' ? wiggleParity : frameParity,
+    frameParity: effParity,
   });
 }
 

@@ -208,6 +208,17 @@ if (typeof window !== 'undefined') {
 export const isNarrow  = computed(() => viewportWidth.value < 640);
 export const isCompact = computed(() => viewportWidth.value < 960);
 
+// Coarse pointer = phone / tablet. Gates the Cardboard entry points, which
+// make no sense on a desktop monitor.
+export const isCoarsePointer = signal<boolean>(
+  typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches,
+);
+if (typeof window !== 'undefined') {
+  window
+    .matchMedia('(pointer: coarse)')
+    .addEventListener('change', (e) => (isCoarsePointer.value = e.matches));
+}
+
 // Fullscreen state, synced to the browser's own flag. The user can leave
 // fullscreen via Escape, OS gestures, or the browser UI, so we can't treat
 // our toggle calls as authoritative — listen to `fullscreenchange` instead.
@@ -223,4 +234,108 @@ export function toggleFullscreen() {
   if (typeof document === 'undefined') return;
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen();
+}
+
+// --- Google Cardboard (phone-in-headset) mode ----------------------------
+// Transient, like `fullscreen`: one tap → fullscreen → landscape lock → wake
+// lock → all chrome hidden, with each eye zoomed and shifted inward so the
+// two images sit on the Cardboard lens axes (64 mm apart, inboard of the
+// half-screen centres on every common phone). The persisted `layout` /
+// `encoding` are deliberately NOT written: main.tsx derives the effective
+// values (sbs-half / none) while the mode is on, so the user's choice
+// survives the session.
+export const cardboard = signal<boolean>(false);
+// True while a Cardboard slider is being dragged, so the geometry previews in
+// the normal side-by-side view outside the headset.
+export const cardboardPreview = signal<boolean>(false);
+// Per-eye zoom (%). The Moon disc is ~800 of the 1080 source px; at 70 % it
+// spans ~35 mm on a typical phone, inside the lens' sharp central field.
+export const CARDBOARD_SCALE_DEFAULT = 70;
+export const cardboardScalePct = persisted<number>('cardboardScalePct', CARDBOARD_SCALE_DEFAULT);
+// Inward shift of each eye image, in screen px at height-fit. A 150 × 68 mm
+// (landscape) phone has its half-screen centres 75 mm apart vs the 64 mm lens
+// spacing → 5.5 mm inward ≈ 85 px at 1080 px / 68 mm. Tune per phone.
+export const CARDBOARD_OFFSET_DEFAULT = 85;
+export const cardboardOffsetPx = persisted<number>('cardboardOffsetPx', CARDBOARD_OFFSET_DEFAULT);
+// Set when a <video> element fires `error` (e.g. no HEVC decoder on this
+// device); the stereo view shows NO VIDEO instead of LOADING forever.
+export const videoError = signal<string | null>(null);
+
+// `ScreenOrientation.lock` is missing from TS 5.9's lib.dom (unlock is there).
+type LockableOrientation = ScreenOrientation & {
+  lock?: (orientation: string) => Promise<void>;
+};
+let wakeLock: WakeLockSentinel | null = null;
+// Whether *we* put the document into fullscreen. False when the browser
+// refused (e.g. iPhone Safari) — the mode still runs "soft", with an on-screen
+// exit button instead of relying on `fullscreenchange`.
+let cardboardOwnsFullscreen = false;
+
+async function acquireWakeLock() {
+  // Detached <video> elements never trigger Chrome's own "playing video keeps
+  // the screen on" heuristic, so without this the phone dims mid-piece.
+  try {
+    wakeLock = (await navigator.wakeLock?.request('screen')) ?? null;
+  } catch {
+    wakeLock = null;
+  }
+}
+function releaseWakeLock() {
+  wakeLock?.release().catch(() => {});
+  wakeLock = null;
+}
+
+// Must be called synchronously inside a user gesture (tap handler): the
+// requestFullscreen call is the first await and needs transient activation.
+export async function enterCardboard() {
+  if (cardboard.value || typeof document === 'undefined') return;
+  view.value = 'stereo';
+  closeIntroduction();
+  panelOpen.value = false;
+  let fs = false;
+  try {
+    await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+    fs = true;
+  } catch (err) {
+    console.warn('[cardboard] fullscreen unavailable:', err);
+  }
+  cardboardOwnsFullscreen = fs;
+  // Flip the flag after fullscreen so the exit listener below can't misfire,
+  // and so the brief portrait-before-rotation frame already renders the
+  // Cardboard layout.
+  cardboard.value = true;
+  // Chrome Android only allows lock() while fullscreen (and it overrides the
+  // user's auto-rotate setting); desktop rejects with NotSupportedError.
+  try {
+    await (screen.orientation as LockableOrientation).lock?.('landscape');
+  } catch {}
+  await acquireWakeLock();
+  if (videosReady.value) playing.value = true;
+}
+
+export function exitCardboard() {
+  if (!cardboard.value) return;
+  cardboard.value = false;
+  releaseWakeLock();
+  try {
+    screen.orientation.unlock();
+  } catch {}
+  if (cardboardOwnsFullscreen && document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  }
+  cardboardOwnsFullscreen = false;
+}
+
+if (typeof document !== 'undefined') {
+  // Android back gesture / Esc / `f` all leave fullscreen → leave Cardboard.
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && cardboard.value && cardboardOwnsFullscreen) {
+      exitCardboard();
+    }
+  });
+  // Chrome releases the wake lock whenever the page is hidden (notification
+  // shade, app switch); re-acquire on return.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && cardboard.value) void acquireWakeLock();
+  });
 }

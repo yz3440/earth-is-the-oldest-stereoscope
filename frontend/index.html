@@ -2,7 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover: in fullscreen the layout spans the whole panel
+         (display cutout lands in the black letterbox), so the side-by-side
+         seam sits on the physical screen centre — required for Cardboard.
+         user-scalable=no: a headset lever tap must never pinch/double-tap
+         zoom the stereo pair apart. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
     <title>Earth is the Oldest Stereoscope</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

@@ -10,6 +10,8 @@ import {
   loadProgress,
   currentTime,
   isNarrow,
+  isCoarsePointer,
+  enterCardboard,
 } from '../state';
 import { computeFrame, AU_TO_KM } from '../astronomy';
 import { IntroDiagram } from './IntroDiagram';
@@ -290,7 +292,8 @@ function page2Content(): PageContent {
           The pair sits {em('side by side')} — Boston on the left, Santiago on
           the right, the way a stereoscope holds two photographs. To find the
           depth, {em('relax or cross your eyes')} until the two Moons slide
-          together into one, or look through a stereoscope or Cardboard viewer.
+          together into one, or look through a stereoscope or a Google
+          Cardboard viewer (on a phone: tap {em('VIEW IN CARDBOARD')} below).
         </p>
         {/* <div style={{ marginBottom: 4 }}>
           {em('← →')} scrub &nbsp;·&nbsp; {em('SPACE')} play / pause
@@ -414,6 +417,27 @@ function IntroductionCard({
             >
               SKIP
             </button>
+            {/* Phone-in-headset entry. Touch devices only, last page only —
+                this tap is the user gesture that lets enterCardboard() go
+                fullscreen and lock the orientation. */}
+            {isLast && isCoarsePointer.value && (
+              <button
+                type='button'
+                onClick={() => void enterCardboard()}
+                style={{
+                  padding: '4px 8px',
+                  fontSize: 10,
+                  letterSpacing: '0.18em',
+                  border: '1px solid var(--line)',
+                  background: 'transparent',
+                  color: 'var(--text-2)',
+                  cursor: 'pointer',
+                }}
+                title='View in a Google Cardboard headset'
+              >
+                VIEW IN CARDBOARD
+              </button>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button

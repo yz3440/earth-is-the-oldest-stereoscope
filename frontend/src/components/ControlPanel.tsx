@@ -3,7 +3,7 @@
 //   - horizontal: inside the desktop controls bar above BottomBar
 // Both share the same signals and input elements; only layout differs.
 
-import { layout, encoding, method, setMethod, ANAGLYPH_ENCODINGS, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom, loopOverlap, squeezePct, wiggleMs } from '../state';
+import { layout, encoding, method, setMethod, ANAGLYPH_ENCODINGS, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom, loopOverlap, squeezePct, wiggleMs, isCoarsePointer, enterCardboard, cardboardPreview, cardboardScalePct, cardboardOffsetPx, CARDBOARD_SCALE_DEFAULT, CARDBOARD_OFFSET_DEFAULT } from '../state';
 import type { Layout, Encoding, Method, SourceMode } from '../state';
 import { TooltipLabel } from './Tooltip';
 
@@ -24,6 +24,9 @@ const TOOLTIPS = {
   FOCUS: 'Center the 3D camera on the full system, Earth, or the Moon.',
   LOOP: 'Loop playback between the start and end of the Boston/Santiago overlap window.',
   SQUEEZE: 'Horizontally squeeze (>100%) or stretch (<100%) each eye image — useful when the downstream display alters aspect ratio (e.g. half-SBS 3D TVs).',
+  CARDBOARD: 'Phone in a Google Cardboard viewer: fullscreen, landscape, screen kept awake, side-by-side with each eye zoomed and shifted onto the lens axes. Tap the screen (or the Cardboard lever) to play / pause; the back gesture exits.',
+  SCALE: 'Cardboard: size of each eye image. Smaller keeps the Moon inside the sharp centre of the lens.',
+  'LENS OFFSET': 'Cardboard: how far each eye image moves inward so it sits on the lens axis. Increase on wider phones; adjust until the two Moons fuse comfortably.',
 } as const;
 
 type LabelKey = keyof typeof TOOLTIPS;
@@ -218,6 +221,92 @@ function SqueezeSlider({ width = 100 }: { width?: number }) {
   );
 }
 
+// Cardboard sliders preview their geometry in the normal side-by-side view
+// while being dragged (the user tunes them *outside* the headset), then the
+// view returns to normal shortly after the last input.
+let cardboardPreviewTimer = 0;
+function pokeCardboardPreview() {
+  cardboardPreview.value = true;
+  window.clearTimeout(cardboardPreviewTimer);
+  cardboardPreviewTimer = window.setTimeout(() => (cardboardPreview.value = false), 1200);
+}
+
+function CardboardScaleSlider({ width = 100 }: { width?: number }) {
+  return (
+    <div class="flex items-center gap-2">
+      <input
+        type="range"
+        min={40}
+        max={100}
+        value={cardboardScalePct.value}
+        onInput={(e) => {
+          cardboardScalePct.value = parseInt((e.target as HTMLInputElement).value);
+          pokeCardboardPreview();
+        }}
+        style={{ width }}
+      />
+      <span style={{ fontSize: 11, opacity: 0.7, minWidth: 36, textAlign: 'right' }}>
+        {cardboardScalePct.value}%
+      </span>
+      <button
+        type="button"
+        onClick={() => {
+          cardboardScalePct.value = CARDBOARD_SCALE_DEFAULT;
+          pokeCardboardPreview();
+        }}
+        style={{ padding: '2px 6px', fontSize: 10, opacity: 0.7 }}
+        title={`Reset scale to ${CARDBOARD_SCALE_DEFAULT}%`}
+      >
+        reset
+      </button>
+    </div>
+  );
+}
+
+function CardboardOffsetSlider({ width = 100 }: { width?: number }) {
+  return (
+    <div class="flex items-center gap-2">
+      <input
+        type="range"
+        min={0}
+        max={200}
+        value={cardboardOffsetPx.value}
+        onInput={(e) => {
+          cardboardOffsetPx.value = parseInt((e.target as HTMLInputElement).value);
+          pokeCardboardPreview();
+        }}
+        style={{ width }}
+      />
+      <span style={{ fontSize: 11, opacity: 0.7, minWidth: 36, textAlign: 'right' }}>
+        {cardboardOffsetPx.value}px
+      </span>
+      <button
+        type="button"
+        onClick={() => {
+          cardboardOffsetPx.value = CARDBOARD_OFFSET_DEFAULT;
+          pokeCardboardPreview();
+        }}
+        style={{ padding: '2px 6px', fontSize: 10, opacity: 0.7 }}
+        title={`Reset lens offset to ${CARDBOARD_OFFSET_DEFAULT}px`}
+      >
+        reset
+      </button>
+    </div>
+  );
+}
+
+function CardboardEnterButton() {
+  return (
+    <button
+      type="button"
+      onClick={() => void enterCardboard()}
+      style={{ padding: '3px 10px', fontSize: 10, letterSpacing: '0.12em' }}
+    >
+      ENTER
+    </button>
+  );
+}
+
 // Wiggle speed: ms each eye is shown before swapping. Lower = faster wobble.
 function WiggleSlider({ width = 100 }: { width?: number }) {
   return (
@@ -305,6 +394,13 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
         </VRow>
         <VRow label="PARALLAX"><ParallaxSlider width={100} /></VRow>
         <VRow label="SQUEEZE"><SqueezeSlider width={100} /></VRow>
+        {isCoarsePointer.value && (
+          <>
+            <VRow label="CARDBOARD"><CardboardEnterButton /></VRow>
+            <VRow label="SCALE"><CardboardScaleSlider width={100} /></VRow>
+            <VRow label="LENS OFFSET"><CardboardOffsetSlider width={100} /></VRow>
+          </>
+        )}
         <VRow label="LOOP">
           <Switch checked={loopOverlap.value} onToggle={() => (loopOverlap.value = !loopOverlap.value)} />
         </VRow>
@@ -339,6 +435,13 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
       </HCell>
       <HCell label="PARALLAX"><ParallaxSlider width={120} /></HCell>
       <HCell label="SQUEEZE"><SqueezeSlider width={120} /></HCell>
+      {isCoarsePointer.value && (
+        <>
+          <HCell label="CARDBOARD"><CardboardEnterButton /></HCell>
+          <HCell label="SCALE"><CardboardScaleSlider width={120} /></HCell>
+          <HCell label="LENS OFFSET"><CardboardOffsetSlider width={120} /></HCell>
+        </>
+      )}
       <HCell label="LOOP">
         <Switch checked={loopOverlap.value} onToggle={() => (loopOverlap.value = !loopOverlap.value)} />
       </HCell>

@@ -51,6 +51,47 @@ const STATION_DIRS: Record<Side, string> = {
   santiago: '/footage/carlos_santiago',
 };
 
+// The primary web encode is HEVC Main 10 (`hvc1`, level 4.0 -> "L120"). Chrome
+// on Android only plays it when the SoC has a hardware Main10 decoder, and
+// Firefox Android / Linux desktop often can't at all - in which case the
+// <video> fails with MEDIA_ERR_SRC_NOT_SUPPORTED. Probe once and fall back to
+// the 8-bit H.264 encode (`*_stabilized_h264_web.mp4`, produced by
+// 06_compress_for_web.py --codec h264). Unknown -> assume HEVC (the previous
+// behaviour) so a probe failure never regresses working browsers.
+const HEVC_MAIN10 = 'video/mp4; codecs="hvc1.2.4.L120.B0"';
+let hevcProbe: Promise<boolean> | null = null;
+function canPlayHevc(): Promise<boolean> {
+  return (hevcProbe ??= (async () => {
+    try {
+      const mc = navigator.mediaCapabilities;
+      if (mc?.decodingInfo) {
+        const r = await mc.decodingInfo({
+          type: 'file',
+          video: {
+            contentType: HEVC_MAIN10,
+            width: 1080,
+            height: 1080,
+            bitrate: 450_000,
+            framerate: 30,
+          },
+        });
+        return r.supported;
+      }
+      return document.createElement('video').canPlayType(HEVC_MAIN10) !== '';
+    } catch {
+      return true;
+    }
+  })());
+}
+
+async function isDeployed(url: string): Promise<boolean> {
+  try {
+    return (await fetch(url, { method: 'HEAD' })).ok;
+  } catch {
+    return false;
+  }
+}
+
 async function loadStation(side: Side): Promise<StationManifest> {
   const dir = STATION_DIRS[side];
   const [metaRes, anglesRes] = await Promise.all([
@@ -63,8 +104,13 @@ async function loadStation(side: Side): Promise<StationManifest> {
   const angles: StereoAngles = await anglesRes.json();
 
   // Serve the unrotated stabilized video; rotation is applied in the shader.
-  const stabilizedWeb = angles.source_video.replace(/_stabilized\.mp4$/, '_stabilized_web.mp4');
-  const videoUrl = `${dir}/${stabilizedWeb}`;
+  // The H.264 fallbacks are too large for git, so a deployment may not ship
+  // them: only switch to one that is actually there, else stay on HEVC.
+  const urlFor = (suffix: string) =>
+    `${dir}/${angles.source_video.replace(/_stabilized\.mp4$/, suffix)}`;
+  const hevcUrl = urlFor('_stabilized_web.mp4');
+  const h264Url = urlFor('_stabilized_h264_web.mp4');
+  const videoUrl = (await canPlayHevc()) || !(await isDeployed(h264Url)) ? hevcUrl : h264Url;
 
   // Real-sec per video-sec. Seestar reports timelapse_fps=1 but the
   // calibrator measures ~0.71; for a 30 fps encode that's ~42.2.

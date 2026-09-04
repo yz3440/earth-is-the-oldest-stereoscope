@@ -9,6 +9,14 @@ dist
 
 # Exception: commit the compressed web videos served by the frontend viewer
 !frontend/public/footage/**/*_web.mp4
+# ...but not the 8-bit H.264 fallbacks (06_compress_for_web.py --codec h264):
+# ~175 MB for the pair is too large for GitHub. Host them out-of-band; the
+# viewer probes for them and falls back to the HEVC file if they're missing.
+frontend/public/footage/**/*_h264_web.mp4
+
+# Local agent settings and private submission drafts — never commit
+.claude/
+opencall/
 
 # Stabilize pipeline intermediate / output files (regenerable from raw mp4 + viewer)
 videos/**/*_offsets.json

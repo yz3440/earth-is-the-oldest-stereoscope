@@ -257,6 +257,17 @@ export const cardboardScalePct = persisted<number>('cardboardScalePct', CARDBOAR
 // spacing → 5.5 mm inward ≈ 85 px at 1080 px / 68 mm. Tune per phone.
 export const CARDBOARD_OFFSET_DEFAULT = 85;
 export const cardboardOffsetPx = persisted<number>('cardboardOffsetPx', CARDBOARD_OFFSET_DEFAULT);
+// Cardboard: show the per-eye telemetry text inside the headset, and how
+// much to scale each eye's text block about its lens axis. 100 % leaves the
+// text at the screen edges (outside the lens' field); smaller pulls it inward
+// toward the Moon and shrinks it. The lens offset is always applied to the
+// text in Cardboard mode so it tracks the Moon image.
+export const cardboardShowText = persisted<boolean>('cardboardShowText', true);
+export const CARDBOARD_TEXT_SCALE_DEFAULT = 70;
+export const cardboardTextScalePct = persisted<number>(
+  'cardboardTextScalePct',
+  CARDBOARD_TEXT_SCALE_DEFAULT,
+);
 // Set when a <video> element fires `error` (e.g. no HEVC decoder on this
 // device); the stereo view shows NO VIDEO instead of LOADING forever.
 export const videoError = signal<string | null>(null);
@@ -339,3 +350,45 @@ if (typeof document !== 'undefined') {
     if (document.visibilityState === 'visible' && cardboard.value) void acquireWakeLock();
   });
 }
+
+// --- Overlay text depth ---------------------------------------------------
+// Where the per-eye telemetry text sits in depth. `screen`: pinned, no shift
+// (the default). `moon`: shifted by the same on-screen distance the shader
+// shifts the Moon, so it fuses at the Moon's depth. `custom`: its own shift.
+export type TextDepth = 'screen' | 'moon' | 'custom';
+export const textDepth = persisted<TextDepth>('textDepth', 'screen');
+export const textParallaxPx = persisted<number>('textParallaxPx', 0);
+
+// Shared stereo geometry — one source of truth for the shader (main.tsx) and
+// the DOM overlay (EyeOverlay.tsx) so text and Moon always agree. Cardboard
+// zoom / lens offset apply in Cardboard mode and while a Cardboard slider is
+// being previewed. The offset is a physical on-screen distance while the
+// shader's parallax is applied in source px *after* the zoom, hence / zoom.
+export const stereoZoom = computed(() =>
+  cardboard.value || cardboardPreview.value
+    ? Math.max(0.05, cardboardScalePct.value / 100)
+    : 1,
+);
+export const effectiveParallaxPx = computed(
+  () =>
+    parallaxPx.value +
+    (cardboard.value || cardboardPreview.value
+      ? cardboardOffsetPx.value / stereoZoom.value
+      : 0),
+);
+// In Cardboard (and its slider preview) the lens offset is optics, not
+// depth: the text gets it in every mode so it sits on the lens axis with the
+// Moon. `moon` mode already includes it via effectiveParallaxPx.
+const cardboardLensOffsetPx = computed(() =>
+  cardboard.value || cardboardPreview.value ? cardboardOffsetPx.value / stereoZoom.value : 0,
+);
+export const textShiftPx = computed(() => {
+  switch (textDepth.value) {
+    case 'screen':
+      return cardboardLensOffsetPx.value;
+    case 'moon':
+      return effectiveParallaxPx.value;
+    case 'custom':
+      return textParallaxPx.value + cardboardLensOffsetPx.value;
+  }
+});

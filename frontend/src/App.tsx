@@ -15,6 +15,7 @@ import {
   fullscreen,
   showIntro,
   cardboard,
+  cardboardShowText,
   exitCardboard,
   playing,
   videosReady,
@@ -84,10 +85,12 @@ export function App({ scene, manifest, boston, santiago, videos, getAngleRad, ge
       {(isSim || isIntroduction) && scene && <SceneLabels scene={scene} />}
 
       {/* Per-eye overlay text (stereo view only). Hidden while the intro
-          pop-up is open so the centered concept card reads as a clean modal,
-          and in Cardboard mode where the outer quarters fall in the lens'
-          vignetted edge. */}
-      {isStereo && !showIntro.value && !cb && <EyeOverlay boston={boston} santiago={santiago} />}
+          pop-up is open so the centered concept card reads as a clean modal.
+          In Cardboard mode it is optional (TEXT switch) and EyeOverlay pulls
+          it inward toward the lens axis (TEXT SCALE). */}
+      {isStereo && !showIntro.value && (!cb || cardboardShowText.value) && (
+        <EyeOverlay boston={boston} santiago={santiago} />
+      )}
 
       {/* Telescope grid — sim view only. */}
       {isSim && (

@@ -3,8 +3,8 @@
 //   - horizontal: inside the desktop controls bar above BottomBar
 // Both share the same signals and input elements; only layout differs.
 
-import { layout, encoding, method, setMethod, ANAGLYPH_ENCODINGS, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom, loopOverlap, squeezePct, wiggleMs, isCoarsePointer, enterCardboard, cardboardPreview, cardboardScalePct, cardboardOffsetPx, CARDBOARD_SCALE_DEFAULT, CARDBOARD_OFFSET_DEFAULT } from '../state';
-import type { Layout, Encoding, Method, SourceMode } from '../state';
+import { layout, encoding, method, setMethod, ANAGLYPH_ENCODINGS, sourceMode, correction, flipHead, parallaxPx, view, showTelescopes, showEyeTop, showEyeBottom, loopOverlap, squeezePct, wiggleMs, isCoarsePointer, enterCardboard, cardboardPreview, cardboardScalePct, cardboardOffsetPx, CARDBOARD_SCALE_DEFAULT, CARDBOARD_OFFSET_DEFAULT, textDepth, textParallaxPx, cardboardShowText, cardboardTextScalePct, CARDBOARD_TEXT_SCALE_DEFAULT } from '../state';
+import type { Layout, Encoding, Method, SourceMode, TextDepth } from '../state';
 import { TooltipLabel } from './Tooltip';
 
 type Orientation = 'vertical' | 'horizontal';
@@ -17,6 +17,8 @@ const TOOLTIPS = {
   CORRECTION: 'Rotate each eye image so the stereo baseline is horizontal (uses telescope orientation data).',
   'FLIP HEAD': 'Flip the view 180° and swap eyes — useful for lying on your back or upside-down headsets.',
   PARALLAX: 'Horizontal shift between eyes in pixels — adjusts perceived depth.',
+  'TEXT DEPTH': 'Where the overlay text sits in depth: pinned to the screen, shifted with the Moon (follows PARALLAX), or at its own shift.',
+  'TEXT SHIFT': 'Horizontal shift between eyes for the overlay text, in pixels — like PARALLAX, but for the text only.',
   WIGGLE: 'How fast the two views alternate, in milliseconds per view. Lower = faster wobble.',
   'TOP TEXT': 'Show the city name, coordinates, and local time block at the top of each eye.',
   'BOT TEXT': 'Show the weather, UTC time, and eclipse phase block at the bottom of each eye.',
@@ -27,6 +29,8 @@ const TOOLTIPS = {
   CARDBOARD: 'Phone in a Google Cardboard viewer: fullscreen, landscape, screen kept awake, side-by-side with each eye zoomed and shifted onto the lens axes. Tap the screen (or the Cardboard lever) to play / pause; the back gesture exits.',
   SCALE: 'Cardboard: size of each eye image. Smaller keeps the Moon inside the sharp centre of the lens.',
   'LENS OFFSET': 'Cardboard: how far each eye image moves inward so it sits on the lens axis. Increase on wider phones; adjust until the two Moons fuse comfortably.',
+  TEXT: 'Cardboard: show the per-eye telemetry text inside the headset.',
+  'TEXT SCALE': 'Cardboard: size of each eye\'s text block, scaled about the lens axis. Smaller pulls the text inward from the screen edges (outside the lens\' field) toward the Moon.',
 } as const;
 
 type LabelKey = keyof typeof TOOLTIPS;
@@ -195,6 +199,50 @@ function ParallaxSlider({ width = 100 }: { width?: number }) {
   );
 }
 
+const TEXT_DEPTH_OPTS: { v: TextDepth; l: string }[] = [
+  { v: 'screen', l: 'screen' },
+  { v: 'moon',   l: 'with moon' },
+  { v: 'custom', l: 'custom' },
+];
+
+function TextDepthSelect() {
+  return (
+    <select
+      value={textDepth.value}
+      onChange={(e) => (textDepth.value = (e.target as HTMLSelectElement).value as TextDepth)}
+    >
+      {TEXT_DEPTH_OPTS.map((o) => (<option value={o.v}>{o.l}</option>))}
+    </select>
+  );
+}
+
+// Own parallax for the overlay text; shown only when TEXT DEPTH is `custom`.
+function TextShiftSlider({ width = 100 }: { width?: number }) {
+  return (
+    <div class="flex items-center gap-2">
+      <input
+        type="range"
+        min={-200}
+        max={200}
+        value={textParallaxPx.value}
+        onInput={(e) => (textParallaxPx.value = parseInt((e.target as HTMLInputElement).value))}
+        style={{ width }}
+      />
+      <span style={{ fontSize: 11, opacity: 0.7, minWidth: 36, textAlign: 'right' }}>
+        {textParallaxPx.value > 0 ? '+' : ''}{textParallaxPx.value}px
+      </span>
+      <button
+        type="button"
+        onClick={() => (textParallaxPx.value = 0)}
+        style={{ padding: '2px 6px', fontSize: 10, opacity: 0.7 }}
+        title="Reset text shift to 0"
+      >
+        reset
+      </button>
+    </div>
+  );
+}
+
 function SqueezeSlider({ width = 100 }: { width?: number }) {
   return (
     <div class="flex items-center gap-2">
@@ -288,6 +336,38 @@ function CardboardOffsetSlider({ width = 100 }: { width?: number }) {
         }}
         style={{ padding: '2px 6px', fontSize: 10, opacity: 0.7 }}
         title={`Reset lens offset to ${CARDBOARD_OFFSET_DEFAULT}px`}
+      >
+        reset
+      </button>
+    </div>
+  );
+}
+
+function CardboardTextScaleSlider({ width = 100 }: { width?: number }) {
+  return (
+    <div class="flex items-center gap-2">
+      <input
+        type="range"
+        min={40}
+        max={100}
+        value={cardboardTextScalePct.value}
+        onInput={(e) => {
+          cardboardTextScalePct.value = parseInt((e.target as HTMLInputElement).value);
+          pokeCardboardPreview();
+        }}
+        style={{ width }}
+      />
+      <span style={{ fontSize: 11, opacity: 0.7, minWidth: 36, textAlign: 'right' }}>
+        {cardboardTextScalePct.value}%
+      </span>
+      <button
+        type="button"
+        onClick={() => {
+          cardboardTextScalePct.value = CARDBOARD_TEXT_SCALE_DEFAULT;
+          pokeCardboardPreview();
+        }}
+        style={{ padding: '2px 6px', fontSize: 10, opacity: 0.7 }}
+        title={`Reset text scale to ${CARDBOARD_TEXT_SCALE_DEFAULT}%`}
       >
         reset
       </button>
@@ -393,12 +473,22 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
           <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
         </VRow>
         <VRow label="PARALLAX"><ParallaxSlider width={100} /></VRow>
+        <VRow label="TEXT DEPTH"><TextDepthSelect /></VRow>
+        {textDepth.value === 'custom' && (
+          <VRow label="TEXT SHIFT"><TextShiftSlider width={100} /></VRow>
+        )}
         <VRow label="SQUEEZE"><SqueezeSlider width={100} /></VRow>
         {isCoarsePointer.value && (
           <>
             <VRow label="CARDBOARD"><CardboardEnterButton /></VRow>
             <VRow label="SCALE"><CardboardScaleSlider width={100} /></VRow>
             <VRow label="LENS OFFSET"><CardboardOffsetSlider width={100} /></VRow>
+            <VRow label="TEXT">
+              <Switch checked={cardboardShowText.value} onToggle={() => (cardboardShowText.value = !cardboardShowText.value)} />
+            </VRow>
+            {cardboardShowText.value && (
+              <VRow label="TEXT SCALE"><CardboardTextScaleSlider width={100} /></VRow>
+            )}
           </>
         )}
         <VRow label="LOOP">
@@ -434,12 +524,22 @@ export function StereoControls({ orientation }: { orientation: Orientation }) {
         <Switch checked={flipHead.value} onToggle={() => (flipHead.value = !flipHead.value)} />
       </HCell>
       <HCell label="PARALLAX"><ParallaxSlider width={120} /></HCell>
+      <HCell label="TEXT DEPTH"><TextDepthSelect /></HCell>
+      {textDepth.value === 'custom' && (
+        <HCell label="TEXT SHIFT"><TextShiftSlider width={120} /></HCell>
+      )}
       <HCell label="SQUEEZE"><SqueezeSlider width={120} /></HCell>
       {isCoarsePointer.value && (
         <>
           <HCell label="CARDBOARD"><CardboardEnterButton /></HCell>
           <HCell label="SCALE"><CardboardScaleSlider width={120} /></HCell>
           <HCell label="LENS OFFSET"><CardboardOffsetSlider width={120} /></HCell>
+          <HCell label="TEXT">
+            <Switch checked={cardboardShowText.value} onToggle={() => (cardboardShowText.value = !cardboardShowText.value)} />
+          </HCell>
+          {cardboardShowText.value && (
+            <HCell label="TEXT SCALE"><CardboardTextScaleSlider width={120} /></HCell>
+          )}
         </>
       )}
       <HCell label="LOOP">

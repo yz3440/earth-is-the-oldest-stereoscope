@@ -31,7 +31,6 @@ import {
   correction,
   flipHead,
   isNarrow,
-  parallaxPx,
   view,
   showIntro,
   showTelescopes,
@@ -46,9 +45,8 @@ import {
   RATE_STEPS,
   DEFAULT_RATE_INDEX,
   cardboard,
-  cardboardPreview,
-  cardboardScalePct,
-  cardboardOffsetPx,
+  stereoZoom,
+  effectiveParallaxPx,
   videoError,
 } from './state';
 import type { Layout, Encoding } from './state';
@@ -855,14 +853,13 @@ function animate(realTime: number) {
   // Cardboard mode forces the raw side-by-side pair without touching the
   // persisted `layout` / `encoding`. Its geometry (per-eye zoom + inward
   // lens-axis shift) also previews while a Cardboard slider is dragged.
-  // The offset is a physical on-screen distance, and the shader's parallax
-  // is applied in source px *after* the zoom, so divide by the zoom to keep
-  // the on-screen displacement constant.
-  const cbGeom = cb || cardboardPreview.value;
-  const zoom = cbGeom ? Math.max(0.05, cardboardScalePct.value / 100) : 1;
+  // Zoom and effective parallax come from state.ts (`stereoZoom`,
+  // `effectiveParallaxPx`) so the DOM text overlay can apply the identical
+  // on-screen shift.
+  const zoom = stereoZoom.value;
   const effLayout: Layout = cb ? 'sbs-half' : layout.value;
   const effEncoding: Encoding = cb ? 'none' : encoding.value;
-  const effParallaxPx = parallaxPx.value + (cbGeom ? cardboardOffsetPx.value / zoom : 0);
+  const effParallaxPx = effectiveParallaxPx.value;
   const effParity = effEncoding === 'wiggle' ? wiggleParity : frameParity;
 
   // Placeholder: still loading, or the footage failed to decode on this

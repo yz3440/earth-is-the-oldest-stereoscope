@@ -7,7 +7,45 @@
 // left eye) gets the top quarter; bottom eye gets the bottom quarter.
 
 import { computed } from '@preact/signals';
-import { layout, isNarrow, isCompact, flipHead, showEyeTop, showEyeBottom } from '../state';
+import {
+  layout,
+  encoding,
+  isNarrow,
+  isCompact,
+  flipHead,
+  showEyeTop,
+  showEyeBottom,
+  squeezePct,
+  stereoZoom,
+  textShiftPx,
+  viewportWidth,
+  viewportHeight,
+  cardboard,
+  cardboardPreview,
+  cardboardTextScalePct,
+} from '../state';
+
+// On-screen horizontal shift (CSS px) that the shader applies to one eye's
+// image for a parallax of `px` source pixels — mirrors `sampleEye` in
+// stereo.ts. The zoom scales eye-UV before the letterbox; `-half` layouts and
+// the full-frame encodings (wiggle / anaglyph / shutter) letterbox the square
+// source into the eye region, so one source px is min(eyeW, eyeH)/1080 screen
+// px; `-full` layouts stretch it to the eye width; squeeze divides the x
+// scale. Positive = inward (left eye moves right, right eye moves left).
+function parallaxScreenPx(px: number): number {
+  const W = viewportWidth.value;
+  const H = viewportHeight.value;
+  // Cardboard forces raw side-by-side whatever the persisted choice is.
+  const l = cardboard.value ? 'sbs-half' : layout.value;
+  const fullFrame = !cardboard.value && encoding.value !== 'none';
+  const sbs = l === 'sbs-half' || l === 'sbs-full';
+  const eyeW = fullFrame || !sbs ? W : W / 2;
+  const eyeH = fullFrame || sbs ? H : H / 2;
+  const stretch = !fullFrame && (l === 'sbs-full' || l === 'tb-full');
+  const fit = stretch ? eyeW : Math.min(eyeW, eyeH);
+  const squeeze = Math.max(0.01, squeezePct.value / 100);
+  return ((px / 1080) * fit * stereoZoom.value) / squeeze;
+}
 import type { EclipseData } from '../astronomy';
 import type { Weather } from '../weather';
 
@@ -66,11 +104,37 @@ function Eye({ data, which }: { data: EyeData; which: 'top' | 'bottom' | 'left' 
       };
   const align = which === 'right' ? 'right' : 'left';
 
+  const cb = cardboard.value;
+  const cbGeom = cb || cardboardPreview.value;
   const pad = narrow ? 10 : 18;
-  const padBottomBar = 80; // progress 26 + bottom bar 40 + breathing room
+  // Bottom block clears the progress bar + bottom bar (26 + 40 + breathing
+  // room) — except in Cardboard, where there is no chrome.
+  const padBottomBar = cb ? pad : 80;
   // City / localTime shrink on narrow so "BOSTON" and "20:33:33" fit.
   const hFont = narrow ? 15 : 20;
   const bodyFont = narrow ? 10 : 11;
+
+  // TEXT DEPTH: move this eye's text by the same on-screen distance the
+  // shader moves its Moon image (or the custom text shift). Left/top eye
+  // shifts right for positive values, right/bottom eye shifts left.
+  const shift = parallaxScreenPx(textShiftPx.value);
+  const dir = which === 'left' || which === 'top' ? 1 : -1;
+
+  // Cardboard TEXT SCALE: scale this eye's whole text block about its
+  // eye-region centre (the lens axis), which both pulls the text inward from
+  // the screen edges — outside the lens' field — and shrinks it. CSS applies
+  // the rightmost transform first, so the parallax/lens-offset translate
+  // stays in screen px. The origin is the eye centre expressed relative to
+  // this box: left box starts at x=0; right box starts at W - boxW.
+  const W = viewportWidth.value;
+  const textScale = cbGeom ? Math.max(0.2, cardboardTextScalePct.value / 100) : 1;
+  const boxW = (widthVw / 100) * W;
+  const originX = isHoriz
+    ? which === 'left' ? W / 4 : boxW - W / 4
+    : W / 2;
+  const transforms: string[] = [];
+  if (shift) transforms.push(`translateX(${(dir * shift).toFixed(1)}px)`);
+  if (textScale !== 1) transforms.push(`scale(${textScale})`);
 
   return (
     <div
@@ -80,6 +144,8 @@ function Eye({ data, which }: { data: EyeData; which: 'top' | 'bottom' | 'left' 
         padding: `${pad}px`,
         paddingBottom: which === 'left' || which === 'right' || which === 'bottom' ? padBottomBar : pad,
         textAlign: align,
+        transform: transforms.length ? transforms.join(' ') : undefined,
+        transformOrigin: textScale !== 1 ? `${originX.toFixed(1)}px 50%` : undefined,
       }}
     >
       <div class="flex flex-col h-full justify-between">
@@ -146,7 +212,9 @@ export function EyeOverlay({
   santiago: EyeData;
   formatEclipsePhase?: (e: EclipseData) => string;
 }) {
-  const regions = eyeRegions.value;
+  // Cardboard forces side-by-side, so the text regions are left/right there
+  // regardless of the persisted layout.
+  const regions = cardboard.value ? { left: 'left' as const, right: 'right' as const } : eyeRegions.value;
   void formatPhase; // keep reference; actual phase text is already in data
   void formatEclipsePhase;
   // When flipHead is on, the stereo compositor swaps L/R textures, so

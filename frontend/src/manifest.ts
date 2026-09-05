@@ -54,39 +54,104 @@ const STATION_DIRS: Record<Side, string> = {
 // The primary web encode is HEVC Main 10 (`hvc1`, level 4.0 -> "L120"). Chrome
 // on Android only plays it when the SoC has a hardware Main10 decoder, and
 // Firefox Android / Linux desktop often can't at all - in which case the
-// <video> fails with MEDIA_ERR_SRC_NOT_SUPPORTED. Probe once and fall back to
-// the 8-bit H.264 encode (`*_stabilized_h264_web.mp4`, produced by
-// 06_compress_for_web.py --codec h264). Unknown -> assume HEVC (the previous
-// behaviour) so a probe failure never regresses working browsers.
+// <video> fails with MEDIA_ERR_SRC_NOT_SUPPORTED. Decide *before* downloading
+// ~96 MB of footage, in two stages:
+//   1. What the browser claims (mediaCapabilities / canPlayType). Fast; a "no"
+//      is trusted. A "yes" is not - low-end Android Chrome reports a Main10
+//      decoder that then fails on the real stream.
+//   2. Actually decode one frame of a 1 s clip cut with the same encoder
+//      settings (64 KB, /footage/probe/). Only a decoded frame counts; a
+//      decode error or a timeout means "use the 8-bit H.264 encode".
+// Unknown -> assume HEVC (the previous behaviour) so a probe failure never
+// regresses working browsers.
 const HEVC_MAIN10 = 'video/mp4; codecs="hvc1.2.4.L120.B0"';
-let hevcProbe: Promise<boolean> | null = null;
-function canPlayHevc(): Promise<boolean> {
-  return (hevcProbe ??= (async () => {
-    try {
-      const mc = navigator.mediaCapabilities;
-      if (mc?.decodingInfo) {
-        const r = await mc.decodingInfo({
-          type: 'file',
-          video: {
-            contentType: HEVC_MAIN10,
-            width: 1080,
-            height: 1080,
-            bitrate: 450_000,
-            framerate: 30,
-          },
-        });
-        return r.supported;
-      }
-      return document.createElement('video').canPlayType(HEVC_MAIN10) !== '';
-    } catch {
-      return true;
+const HEVC_PROBE_URL = '/footage/probe/hevc-main10-1s.mp4';
+const HEVC_PROBE_TIMEOUT_MS = 6000;
+
+async function browserClaimsHevc(): Promise<boolean> {
+  try {
+    const mc = navigator.mediaCapabilities;
+    if (mc?.decodingInfo) {
+      const r = await mc.decodingInfo({
+        type: 'file',
+        video: {
+          contentType: HEVC_MAIN10,
+          width: 1080,
+          height: 1080,
+          bitrate: 450_000,
+          framerate: 30,
+        },
+      });
+      return r.supported;
     }
+    return document.createElement('video').canPlayType(HEVC_MAIN10) !== '';
+  } catch {
+    return true;
+  }
+}
+
+// Decode test. The clip is fetched into a blob first so a network failure
+// (e.g. a build that omitted it) is told apart from a decode failure: the
+// former keeps stage 1's answer, the latter is a definite "no". Playing from a
+// blob URL also mirrors exactly how the real footage is played.
+async function decodesHevcClip(): Promise<boolean | null> {
+  let blobUrl: string;
+  try {
+    const res = await fetch(HEVC_PROBE_URL);
+    if (!res.ok) return null;
+    blobUrl = URL.createObjectURL(await res.blob());
+  } catch {
+    return null;
+  }
+  return new Promise<boolean>((resolve) => {
+    const v = document.createElement('video');
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = 'auto';
+    let settled = false;
+    const finish = (ok: boolean, why: string) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      console.log(`[hevc-probe] ${ok ? 'decoded' : 'failed'} (${why})`);
+      v.pause();
+      v.removeAttribute('src');
+      v.load();
+      URL.revokeObjectURL(blobUrl);
+      resolve(ok);
+    };
+    const timer = window.setTimeout(() => finish(false, 'timeout'), HEVC_PROBE_TIMEOUT_MS);
+    // Only a decoded frame counts: metadata parses fine on devices that then
+    // fail to decode. play() drives the decoder past Android's preload cap;
+    // an autoplay refusal isn't a decode failure, so its rejection is ignored.
+    v.addEventListener('loadeddata', () => finish(true, 'loadeddata'), { once: true });
+    v.addEventListener('timeupdate', () => {
+      if (v.currentTime > 0) finish(true, 'timeupdate');
+    });
+    v.addEventListener('error', () => {
+      const e = v.error;
+      finish(false, `error code=${e?.code ?? '?'} ${e?.message ?? ''}`.trim());
+    }, { once: true });
+    v.src = blobUrl;
+    v.play().catch(() => {});
+  });
+}
+
+let hevcProbe: Promise<boolean> | null = null;
+export function canPlayHevc(): Promise<boolean> {
+  return (hevcProbe ??= (async () => {
+    if (!(await browserClaimsHevc())) return false;
+    const decoded = await decodesHevcClip();
+    return decoded ?? true;
   })());
 }
 
+// HEAD-check a footage URL. Requires a video content type, not just 200: SPA
+// hosts (and Vite's dev server) answer unknown paths with the HTML shell.
 async function isDeployed(url: string): Promise<boolean> {
   try {
-    return (await fetch(url, { method: 'HEAD' })).ok;
+    const r = await fetch(url, { method: 'HEAD' });
+    return r.ok && (r.headers.get('content-type') ?? '').startsWith('video/');
   } catch {
     return false;
   }
@@ -138,6 +203,7 @@ async function loadStation(side: Side): Promise<StationManifest> {
 }
 
 export async function loadManifest(): Promise<Manifest> {
+  void canPlayHevc(); // kick off the decode probe alongside the JSON fetches
   const [boston, santiago] = await Promise.all([
     loadStation('boston'),
     loadStation('santiago'),
